@@ -1,0 +1,9 @@
+target
+.git
+.github
+deploy
+tests
+scripts
+*.md
+config.toml
+.env

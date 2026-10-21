@@ -1,0 +1,109 @@
+name: Nx remote cache
+description: >
+  Point Nx at an nx-remote-cache server. Exchanges the job's GitHub OIDC token for a cache
+  token (via Entra ID or the server's own mint endpoint) and exports
+  NX_SELF_HOSTED_REMOTE_CACHE_SERVER / NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN.
+  The job needs `permissions: id-token: write`.
+
+inputs:
+  server-url:
+    description: Base URL of the cache server.
+    required: true
+  provider:
+    description: "`entra` (Entra ID issues the token) or `mint` (the server's /v1/token/github)."
+    default: entra
+  access:
+    description: >
+      `auto` (write only for a push to the default branch, read otherwise), `read` or `write`.
+      Only selects which identity to ask for; Entra's federated credentials (or the server's
+      mint rules) decide what is actually granted.
+    default: auto
+  tenant-id:
+    description: "[entra] Directory (tenant) id."
+  writer-client-id:
+    description: "[entra] Client id of the writer managed identity."
+  reader-client-id:
+    description: "[entra] Client id of the reader managed identity."
+  api-scope:
+    description: "[entra] Scope for the cache API, e.g. api://<tenant id>/nx-remote-cache/.default"
+  github-audience:
+    description: "[mint] Audience the server expects on the GitHub OIDC token (defaults to server-url)."
+  anonymous-read:
+    description: >
+      Set to `true` if the server allows anonymous reads. Jobs without an OIDC token (fork PRs)
+      then still read the cache; otherwise the remote cache is left off for them, because Nx
+      fails the whole run when the server rejects a request with 401.
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Configure Nx remote cache
+      shell: bash
+      env:
+        SERVER_URL: ${{ inputs.server-url }}
+        PROVIDER: ${{ inputs.provider }}
+        ACCESS: ${{ inputs.access }}
+        TENANT_ID: ${{ inputs.tenant-id }}
+        WRITER_CLIENT_ID: ${{ inputs.writer-client-id }}
+        READER_CLIENT_ID: ${{ inputs.reader-client-id }}
+        API_SCOPE: ${{ inputs.api-scope }}
+        GITHUB_AUDIENCE: ${{ inputs.github-audience }}
+        ANONYMOUS_READ: ${{ inputs.anonymous-read }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        set -euo pipefail
+        server="${SERVER_URL%/}"
+
+        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+          # Fork PRs get no OIDC token, so Nx would send no Authorization header. That only works
+          # if the server allows anonymous reads; otherwise the server answers 401 and Nx fails
+          # the whole run, so leave the remote cache off instead.
+          if [ "$ANONYMOUS_READ" = true ]; then
+            echo "NX_SELF_HOSTED_REMOTE_CACHE_SERVER=$server" >> "$GITHUB_ENV"
+            echo "::notice::No OIDC token available (fork PR, or missing 'id-token: write'); reading the cache anonymously."
+          else
+            echo "::notice::No OIDC token available (fork PR, or missing 'id-token: write'); remote cache disabled for this job."
+          fi
+          exit 0
+        fi
+
+        github_oidc() {
+          curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$1" | jq -er .value
+        }
+
+        want=read
+        if [ "$ACCESS" = write ] || { [ "$ACCESS" = auto ] && [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ]; }; then
+          want=write
+        fi
+
+        case "$PROVIDER" in
+          entra)
+            client_id="$READER_CLIENT_ID"
+            [ "$want" = write ] && client_id="$WRITER_CLIENT_ID"
+            : "${TENANT_ID:?tenant-id is required}" "${client_id:?writer/reader client id is required}" "${API_SCOPE:?api-scope is required}"
+            assertion=$(github_oidc api://AzureADTokenExchange)
+            token=$(curl -sSf "https://login.microsoftonline.com/$TENANT_ID/oauth2/v2.0/token" \
+              --data-urlencode "client_id=$client_id" \
+              --data-urlencode "scope=$API_SCOPE" \
+              --data-urlencode "grant_type=client_credentials" \
+              --data-urlencode "client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer" \
+              --data-urlencode "client_assertion=$assertion" | jq -er .access_token)
+            ;;
+          mint)
+            assertion=$(github_oidc "${GITHUB_AUDIENCE:-$server}")
+            token=$(curl -sSf -X POST -H "Authorization: Bearer $assertion" "$server/v1/token/github" | jq -er .token)
+            ;;
+          *)
+            echo "::error::unknown provider '$PROVIDER' (expected entra or mint)"
+            exit 1
+            ;;
+        esac
+
+        echo "::add-mask::$token"
+        # Only point Nx at the server once a token is in hand: a server URL without a valid
+        # token would make Nx fail the run on the server's 401.
+        echo "NX_SELF_HOSTED_REMOTE_CACHE_SERVER=$server" >> "$GITHUB_ENV"
+        echo "NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN=$token" >> "$GITHUB_ENV"
+        echo "Nx remote cache: requested $want access via $PROVIDER"

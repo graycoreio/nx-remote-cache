@@ -1,0 +1,50 @@
+[package]
+name = "nx-remote-cache"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Self-hosted Nx remote cache server implementing the Nx OpenAPI spec, backed by Azure Blob Storage"
+license = "MIT"
+publish = false
+
+[features]
+default = []
+# Server-minted tokens exchanged for GitHub OIDC tokens. Off by default: the default build
+# contains no code that signs tokens or holds a signing key.
+mint = ["dep:humantime-serde"]
+
+[dependencies]
+async-trait = "0.1"
+axum = "0.8.9"
+azure_core = "1.1.0"
+azure_identity = "1.0.0"
+azure_storage_blob = "1.1.0"
+base64 = "0.23"
+bytes = "1"
+figment = { version = "0.10.19", features = ["toml", "env"] }
+futures = "0.3"
+hex = "0.4"
+humantime-serde = { version = "1", optional = true }
+jsonwebtoken = { version = "11.1", default-features = false, features = ["aws_lc_rs", "use_pem"] }
+jwt-authorizer = { version = "0.15.0", default-features = false, features = ["rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+subtle = "2.6"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "sync"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.7", features = ["trace", "catch-panic"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
+url = { version = "2", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tokio = { version = "1", features = ["full", "test-util"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

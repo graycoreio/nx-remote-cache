@@ -1,0 +1,33 @@
+# Production-shaped config: Azure Container Apps with a managed identity, Entra-issued client
+# tokens. Values in <angle brackets> come from the Bicep deployment outputs.
+
+[server]
+listen = "0.0.0.0:3000"
+json_logs = true
+
+[storage]
+type = "azure"
+account = "<storage account name>"
+container = "nx-cache-v1"
+# System-assigned identity; it needs `Storage Blob Data Contributor` on the container only.
+auth = { mode = "managed_identity" }
+
+# Entra access tokens for the `nx-cache` API app registration (v2 tokens).
+# CI obtains them via azure/login with the writer or reader managed identity.
+[[auth.providers]]
+type = "entra"
+tenant_id = "<tenant id>"
+audiences = ["<nx-cache API app registration client id>"]
+# read_role = "Cache.Read"     # defaults
+# write_role = "Cache.Write"
+
+# Optional: a shared read-only token for developers' local `nx` runs.
+# Generate with `nx-remote-cache generate-token` and put only the sha256 here.
+# [[auth.providers]]
+# type = "static"
+# tokens = [{ name = "dev-readonly", sha256 = "<sha256>", scope = "read" }]
+
+# Optional: anonymous read for public projects (fork PRs have no secrets and no OIDC token).
+# [[auth.providers]]
+# type = "anonymous"
+# scope = "read"

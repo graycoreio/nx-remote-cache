@@ -1,0 +1,20 @@
+# Local development against Azurite (see docker-compose.yml / scripts/azurite-test.sh).
+# The static tokens below are WELL-KNOWN and for local use only, like Azurite's account key:
+#   read:  local-read-token
+#   write: local-write-token
+
+[server]
+listen = "0.0.0.0:3000"
+
+[storage]
+type = "azure"
+endpoint = "http://127.0.0.1:10000/devstoreaccount1"
+container = "nx-cache"
+auth = { mode = "sas", sas_token_env = "AZURE_STORAGE_SAS_TOKEN" }
+
+[[auth.providers]]
+type = "static"
+tokens = [
+  { name = "local-read", sha256 = "01cc3bd7eaf9c772b0fef472284d9c78d18797e6595e450d97dbda2879244f56", scope = "read" },
+  { name = "local-write", sha256 = "b7ebf2ccb295a7d436abe2b21f0260ce255672519edca5704b6677659f3fe4fa", scope = "read_write" },
+]
