@@ -310,7 +310,10 @@ fn explain(e: &azure_core::Error) -> String {
     let hint = match (e.http_status(), error_code(e)) {
         (_, Some("ContainerNotFound")) => "the container does not exist; create it first",
         (Some(StatusCode::Forbidden), Some("AuthorizationPermissionMismatch")) => {
-            "authenticated, but the identity lacks the `Storage Blob Data Contributor` role on the container"
+            // With a role scoped to one container, Azure also answers a missing container
+            // with this 403 rather than ContainerNotFound.
+            "authenticated, but the identity lacks the `Storage Blob Data Contributor` role on \
+             the container, or the container does not exist"
         }
         (Some(StatusCode::Forbidden), _) => {
             "access denied: check the identity's role assignment, or the SAS token's permissions and expiry"
@@ -356,6 +359,68 @@ fn to_blob_metadata(meta: &WriteMeta) -> HashMap<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn http_error(status: StatusCode, code: &str) -> azure_core::Error {
+        ErrorKind::HttpResponse {
+            status,
+            error_code: Some(code.to_owned()),
+            raw_response: None,
+        }
+        .into_error()
+    }
+
+    // Azurite enforces SAS but not RBAC, so the RBAC case can't be produced by the Azurite
+    // tests; these pin every explanation branch with errors shaped like real Azure's.
+    #[test]
+    fn explains_rbac_denial_including_missing_container() {
+        let msg = explain(&http_error(
+            StatusCode::Forbidden,
+            "AuthorizationPermissionMismatch",
+        ));
+        assert!(
+            msg.contains("lacks the `Storage Blob Data Contributor` role"),
+            "{msg}"
+        );
+        assert!(msg.contains("or the container does not exist"), "{msg}");
+    }
+
+    #[test]
+    fn explains_other_denials_and_missing_container() {
+        let sas = explain(&http_error(StatusCode::Forbidden, "AuthenticationFailed"));
+        assert!(sas.starts_with("access denied"), "{sas}");
+        let missing = explain(&http_error(StatusCode::NotFound, "ContainerNotFound"));
+        assert!(
+            missing.starts_with("the container does not exist"),
+            "{missing}"
+        );
+        let credential = explain(&ErrorKind::Credential.into_error());
+        assert!(
+            credential.starts_with("could not obtain an Azure credential"),
+            "{credential}"
+        );
+    }
+
+    #[test]
+    fn unexplained_errors_pass_through() {
+        let e = http_error(StatusCode::InternalServerError, "InternalError");
+        assert_eq!(explain(&e), e.to_string());
+    }
+
+    #[test]
+    fn conflicts_are_recognised() {
+        assert!(is_conflict(&http_error(
+            StatusCode::Conflict,
+            "BlobAlreadyExists"
+        )));
+        assert!(is_conflict(&http_error(
+            StatusCode::PreconditionFailed,
+            "ConditionNotMet"
+        )));
+        assert!(!is_conflict(&http_error(
+            StatusCode::Forbidden,
+            "AuthorizationPermissionMismatch"
+        )));
+    }
 
     #[test]
     fn content_range_total() {
