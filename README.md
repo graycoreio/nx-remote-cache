@@ -102,7 +102,7 @@ scripts/azurite-test.sh        # everything, including the Azure store against A
 
 - the `nx-cache` app registration, with v2 tokens and the `Cache.Read` / `Cache.Write` roles;
 - two CI managed identities (writer, reader) with GitHub federated credentials, each holding one role;
-- the blob container and an optional lifecycle (expiry) rule;
+- storage: either a **new** account (`createStorageAccount = true`: no shared keys, no public access, TLS 1.2 or later), or an **existing** one, in the same or another resource group (`storageResourceGroup`). Either way it adds the cache container and an optional lifecycle (expiry) rule;
 - a server identity with Storage Blob Data Contributor on the container;
 - the Container App: scale-to-zero, health/readiness probes, and config passed inline.
 
@@ -113,7 +113,8 @@ az deployment group create -g <resource group> -f deploy/main.bicep -p deploy/ex
 Read the parameter descriptions before deploying, in particular:
 
 - **`writerSubjects` / `readerSubjects`** are exact-match GitHub OIDC subjects (no wildcards). A job that uses a GitHub `environment` gets a different subject.
-- **`manageLifecyclePolicy`** replaces the storage account's *entire* lifecycle policy.
+- **`manageLifecyclePolicy`** replaces the storage account's *entire* lifecycle policy. Leave it off for a shared existing account that has rules of its own.
+- With an existing account in another resource group, the deploying identity also needs rights to create the container and the role assignment there.
 - The deploying identity needs Entra rights to create app registrations and grant app roles.
 - The image must be pullable by Container Apps. Make the GHCR package public, or add registry credentials.
 

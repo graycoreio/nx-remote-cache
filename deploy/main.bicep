@@ -1,7 +1,9 @@
 // nx-remote-cache on Azure Container Apps, with Entra ID as the client token issuer.
 //
-// Deploy into the resource group that holds the storage account:
 //   az deployment group create -g <rg> -f deploy/main.bicep -p deploy/example.bicepparam
+//
+// Storage can be a new account (createStorageAccount = true) or an existing one, in this
+// resource group or another (storageResourceGroup).
 //
 // The deploying identity needs, besides Owner/RBAC on the resource group, Entra permission to
 // create app registrations (e.g. the Application Developer role) and to grant app roles.
@@ -13,8 +15,14 @@ param namePrefix string = 'nx-remote-cache'
 
 param location string = resourceGroup().location
 
-@description('Existing storage account (in this resource group) that holds the cache.')
+@description('Storage account that holds the cache.')
 param storageAccountName string
+
+@description('Create the storage account (locked down: no shared keys, no public access). If false, use an existing one.')
+param createStorageAccount bool = false
+
+@description('Resource group of the storage account. Defaults to the deployment resource group.')
+param storageResourceGroup string = resourceGroup().name
 
 @description('Blob container for cache entries. Created if missing.')
 param containerName string = 'nx-cache-v1'
@@ -53,7 +61,6 @@ var writeRoleId = guid(resourceGroup().id, namePrefix, 'Cache.Write')
 var userScopeId = guid(resourceGroup().id, namePrefix, 'user_impersonation')
 var azureCliAppId = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'
 var githubIssuer = 'https://token.actions.githubusercontent.com'
-var storageBlobDataContributor = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
 
 // ---------------------------------------------------------------- Entra: the cache API
 
@@ -170,54 +177,6 @@ resource groupReadRoles 'Microsoft.Graph/appRoleAssignedTo@v1.0' = [
   }
 ]
 
-// ---------------------------------------------------------------- Storage
-
-resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
-  name: storageAccountName
-}
-
-resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' existing = {
-  parent: storage
-  name: 'default'
-}
-
-resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
-  parent: blobService
-  name: containerName
-  properties: {
-    publicAccess: 'None'
-  }
-}
-
-resource lifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = if (manageLifecyclePolicy) {
-  parent: storage
-  name: 'default'
-  properties: {
-    policy: {
-      rules: [
-        {
-          name: '${namePrefix}-expire'
-          enabled: true
-          type: 'Lifecycle'
-          definition: {
-            filters: {
-              blobTypes: ['blockBlob']
-              prefixMatch: ['${containerName}/']
-            }
-            actions: {
-              baseBlob: {
-                delete: {
-                  daysAfterCreationGreaterThan: retentionDays
-                }
-              }
-            }
-          }
-        }
-      ]
-    }
-  }
-}
-
 // ---------------------------------------------------------------- The server
 
 // User-assigned so the role assignment exists before the app first starts (the server checks
@@ -227,13 +186,18 @@ resource serverIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-0
   location: location
 }
 
-resource serverBlobAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: container
-  name: guid(container.id, serverIdentity.id, storageBlobDataContributor)
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributor)
-    principalId: serverIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
+module storage 'storage.bicep' = {
+  name: '${namePrefix}-storage'
+  scope: resourceGroup(storageResourceGroup)
+  params: {
+    accountName: storageAccountName
+    createAccount: createStorageAccount
+    location: location
+    containerName: containerName
+    serverPrincipalId: serverIdentity.properties.principalId
+    manageLifecyclePolicy: manageLifecyclePolicy
+    retentionDays: retentionDays
+    ruleName: '${namePrefix}-expire'
   }
 }
 
@@ -301,7 +265,8 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
       '${serverIdentity.id}': {}
     }
   }
-  dependsOn: [serverBlobAccess]
+  // The role assignment must exist before the server's startup storage check.
+  dependsOn: [storage]
   properties: {
     managedEnvironmentId: environment.id
     configuration: {

@@ -3,7 +3,11 @@
 // token (e.g. with github/actions-oidc-debugger) before relying on these.
 using 'main.bicep'
 
+// Existing account in the `daffodil` resource group. For a fresh, isolated setup instead, set
+// createStorageAccount = true and pick a new globally unique name.
 param storageAccountName = 'daffodilnx'
+param storageResourceGroup = 'daffodil'
+param createStorageAccount = false
 param containerName = 'nx-cache-v1'
 param image = 'ghcr.io/graycoreio/nx-remote-cache:0.1.0'
 
