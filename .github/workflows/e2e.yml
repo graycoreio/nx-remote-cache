@@ -1,4 +1,7 @@
-# End-to-end test against a deployed server, through this repo's action and a real Nx client.
+# End-to-end test through graycoreio/nx-remote-cache-action (its main branch, so server and
+# action changes are tested together) and a real Nx client, in both of the action's modes:
+#   remote: against the deployed server (deploy/main.bicep)
+#   local:  the server runs inside the job and uses storage directly (deploy/ci.bicep)
 #
 # Push to main → the action requests the WRITER identity: uploads must land and be read back.
 # Pull request → the READER identity: reads work, uploads are skipped without failing the run.
@@ -6,9 +9,10 @@
 # federated credential on non-main branches, and asks for the reader identity on main.)
 #
 # Configure with repository variables (Settings → Secrets and variables → Actions → Variables),
-# from the deployment outputs of deploy/main.bicep. The job is skipped while they are unset:
-#   NX_CACHE_E2E_URL, NX_CACHE_E2E_TENANT_ID, NX_CACHE_E2E_API_SCOPE,
-#   NX_CACHE_E2E_WRITER_CLIENT_ID, NX_CACHE_E2E_READER_CLIENT_ID
+# from the deployment outputs. The job is skipped while they are unset:
+#   NX_CACHE_E2E_URL, NX_CACHE_E2E_API_SCOPE                       (main.bicep)
+#   NX_CACHE_E2E_STORAGE_ACCOUNT, NX_CACHE_E2E_STORAGE_CONTAINER   (ci.bicep)
+#   NX_CACHE_E2E_TENANT_ID, NX_CACHE_E2E_WRITER_CLIENT_ID, NX_CACHE_E2E_READER_CLIENT_ID (both)
 #
 # The "shared entry" check on PRs reads an entry written by a main run, so main must have run
 # this workflow at least once against the deployment.
@@ -30,6 +34,8 @@ concurrency:
 
 env:
   NX_VERSION: 23.3.0
+  # Local mode runs the server built from this commit; remote mode tests the deployed server.
+  SERVER_IMAGE: nx-remote-cache:e2e
   NX_DAEMON: 'false'
   NX_NO_CLOUD: 'true'
 
@@ -40,12 +46,27 @@ jobs:
       vars.NX_CACHE_E2E_URL != '' &&
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [remote, local]
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+
+      - name: Build the server image from this commit
+        if: matrix.mode == 'local'
+        uses: docker/setup-buildx-action@v3
+      - if: matrix.mode == 'local'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.SERVER_IMAGE }}
+          cache-from: type=gha
 
       - name: Create a throwaway Nx workspace
         run: |
@@ -68,35 +89,43 @@ jobs:
           echo "NXWS=$ws" >> "$GITHUB_ENV"
 
       - name: Configure the remote cache (action under test)
-        uses: ./
+        uses: graycoreio/nx-remote-cache-action@main
         with:
-          server-url: ${{ vars.NX_CACHE_E2E_URL }}
+          mode: ${{ matrix.mode }}
           tenant-id: ${{ vars.NX_CACHE_E2E_TENANT_ID }}
-          api-scope: ${{ vars.NX_CACHE_E2E_API_SCOPE }}
           writer-client-id: ${{ vars.NX_CACHE_E2E_WRITER_CLIENT_ID }}
           reader-client-id: ${{ vars.NX_CACHE_E2E_READER_CLIENT_ID }}
+          server-url: ${{ vars.NX_CACHE_E2E_URL }}
+          api-scope: ${{ vars.NX_CACHE_E2E_API_SCOPE }}
+          storage-account: ${{ vars.NX_CACHE_E2E_STORAGE_ACCOUNT }}
+          storage-container: ${{ vars.NX_CACHE_E2E_STORAGE_CONTAINER }}
+          image: ${{ env.SERVER_IMAGE }}
 
-      - name: Expected access and token claims
+      - name: Expected access
         run: |
           if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = "refs/heads/${{ github.event.repository.default_branch }}" ]; then
-            want=Cache.Write
+            echo "WANT=Cache.Write" >> "$GITHUB_ENV"
           else
-            want=Cache.Read
+            echo "WANT=Cache.Read" >> "$GITHUB_ENV"
           fi
-          echo "WANT=$want" >> "$GITHUB_ENV"
+
+      # Remote mode only: the local mode's token is a random per-job secret, not a JWT.
+      - name: Token claims
+        if: matrix.mode == 'remote'
+        run: |
           # Claims only; the token itself stays masked.
           payload=$(cut -d. -f2 <<<"$NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN" | tr '_-' '/+')
           while [ $(( ${#payload} % 4 )) -ne 0 ]; do payload="$payload="; done
           claims=$(base64 -d <<<"$payload")
           jq '{iss, aud, azp, oid, roles, lifetime_minutes: ((.exp - .iat) / 60 | floor)}' <<<"$claims"
-          jq -e --arg want "$want" '.roles | index($want) != null' <<<"$claims" >/dev/null \
-            || { echo "::error::expected role $want in the token"; exit 1; }
+          jq -e --arg want "$WANT" '.roles | index($want) != null' <<<"$claims" >/dev/null \
+            || { echo "::error::expected role $WANT in the token"; exit 1; }
 
       - name: Protocol checks
         run: |
           url="$NX_SELF_HOSTED_REMOTE_CACHE_SERVER/v1/cache"
           auth="Authorization: Bearer $NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN"
-          hash="e2eprobe${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
+          hash="e2eprobe${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}${{ matrix.mode }}"
           status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
           expect() { [ "$2" = "$3" ] && echo "ok   $1: $2" || { echo "::error::$1: expected $3, got $2"; exit 1; }; }
 
@@ -117,7 +146,7 @@ jobs:
           build() { npx nx build e2e --output-style=static 2>&1 | tee "$RUNNER_TEMP/nx.log"; }
           fresh() { npx nx reset >/dev/null 2>&1; rm -rf dist; }
 
-          echo "run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" > libs/e2e/input.txt
+          echo "run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.mode }}" > libs/e2e/input.txt
           fresh; build
           first=$(cat dist/e2e/out.txt)
           fresh; build
@@ -144,3 +173,44 @@ jobs:
               || { echo "::error::reader: shared entry not found; has main run this workflow against this deployment?"; exit 1; }
             echo "ok   reader: read the entry main wrote"
           fi
+
+      # The local server and its config run on the runner, so they are not a security boundary:
+      # the identity's role on the container is. Prove it with a local server configured as
+      # WRITABLE but running with the READER identity. Azure must refuse the write.
+      - name: Azure enforces read-only for the reader identity (local mode)
+        if: matrix.mode == 'local' && env.WANT == 'Cache.Read'
+        env:
+          TENANT_ID: ${{ vars.NX_CACHE_E2E_TENANT_ID }}
+          READER_CLIENT_ID: ${{ vars.NX_CACHE_E2E_READER_CLIENT_ID }}
+          STORAGE_ACCOUNT: ${{ vars.NX_CACHE_E2E_STORAGE_ACCOUNT }}
+          STORAGE_CONTAINER: ${{ vars.NX_CACHE_E2E_STORAGE_CONTAINER }}
+        run: |
+          dir="$RUNNER_TEMP/boundary"; mkdir -p "$dir"; chmod 755 "$dir"
+          curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -er .value > "$dir/token"
+          chmod 644 "$dir/token"
+          token=$(openssl rand -hex 32)
+          config="[storage]
+          type = \"azure\"
+          account = \"$STORAGE_ACCOUNT\"
+          container = \"$STORAGE_CONTAINER\"
+          auth = { mode = \"workload_identity\", tenant_id = \"$TENANT_ID\", client_id = \"$READER_CLIENT_ID\" }
+          [[auth.providers]]
+          type = \"static\"
+          tokens = [{ name = \"boundary\", sha256 = \"$(printf '%s' "$token" | sha256sum | cut -d' ' -f1)\", scope = \"read_write\" }]"
+          docker run -d --name boundary -p 127.0.0.1:3999:3000 \
+            -e NX_CACHE_CONFIG_TOML="$config" \
+            -e AZURE_FEDERATED_TOKEN_FILE=/var/run/secrets/github/token \
+            -v "$dir/token:/var/run/secrets/github/token:ro" \
+            "$SERVER_IMAGE" > /dev/null
+          for _ in $(seq 1 60); do curl -fsS -o /dev/null http://127.0.0.1:3999/ready 2>/dev/null && break; sleep 1; done
+
+          hash="e2eboundary${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
+          put=$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H "Authorization: Bearer $token" --data probe "http://127.0.0.1:3999/v1/cache/$hash")
+          get=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "http://127.0.0.1:3999/v1/cache/$hash")
+          docker logs boundary > "$dir/server.log" 2>&1
+          # 403 (not 500), so Nx would skip the upload rather than fail the run.
+          [ "$put" = 403 ] || { echo "::error::PUT with the reader identity: expected storage to refuse the write (403), got $put"; cat "$dir/server.log"; exit 1; }
+          [ "$get" = 404 ] || { echo "::error::expected nothing stored, got $get"; exit 1; }
+          grep -q AuthorizationPermissionMismatch "$dir/server.log" || { echo "::error::expected Azure to refuse the write"; cat "$dir/server.log"; exit 1; }
+          echo "ok   reader identity: Azure refused the write (AuthorizationPermissionMismatch), nothing stored"
