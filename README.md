@@ -154,9 +154,9 @@ scripts/azurite-test.sh        # everything, including the Azure store against A
 
 There are two ways to run it in CI:
 
-| | Hosted server ([`main.bicep`](deploy/main.bicep)) | Server inside each CI job ([`ci.bicep`](deploy/ci.bicep)) |
+| | Hosted server ([`hosted.bicep`](deploy/hosted.bicep)) | Local instances ([`local.bicep`](deploy/local.bicep)) |
 |---|---|---|
-| What runs where | A Container App; CI jobs call it over HTTPS | [nx-remote-cache-action](https://github.com/graycoreio/nx-remote-cache-action) with `mode: local` starts the server in the job, on `127.0.0.1` |
+| What runs where | A Container App; CI jobs call it over HTTPS | [the nx-remote-cache action](https://github.com/graycoreio/github-actions/tree/main/nx-remote-cache) with `mode: local` starts the server in the job, on `127.0.0.1` |
 | Azure resources | Container App, logs workspace, Entra app registration, storage, 3 identities | Storage and 2 identities |
 | Who decides read/write | The server, from the Entra token's `Cache.Read` / `Cache.Write` role | Azure Storage, from the identity's role on the container (Data Reader / Data Contributor) |
 | Storage credential | Only the server holds one | On the CI runner, for the job's identity |
@@ -168,7 +168,7 @@ The hosted server is the stronger setup. The in-job server avoids hosting anythi
 
 ### Hosted server
 
-[`deploy/main.bicep`](deploy/main.bicep) creates:
+[`deploy/hosted.bicep`](deploy/hosted.bicep) creates:
 
 - the `nx-cache` app registration, with v2 tokens and the `Cache.Read` / `Cache.Write` roles;
 - two CI managed identities (writer, reader) with GitHub federated credentials, each holding one role;
@@ -177,7 +177,7 @@ The hosted server is the stronger setup. The in-job server avoids hosting anythi
 - the Container App: scale-to-zero, health/readiness probes, and config passed inline.
 
 ```sh
-az deployment group create -g <resource group> -f deploy/main.bicep -p deploy/example.bicepparam
+az deployment group create -g <resource group> -f deploy/hosted.bicep -p deploy/hosted.example.bicepparam
 ```
 
 Read the parameter descriptions before deploying, in particular:
@@ -190,12 +190,12 @@ Read the parameter descriptions before deploying, in particular:
 - The deploying identity needs Entra rights to create app registrations and grant app roles.
 - The image must be pullable by Container Apps. Make the GHCR package public, or add registry credentials.
 
-### Server inside each CI job
+### Local instances
 
-[`deploy/ci.bicep`](deploy/ci.bicep) creates only the storage (new or existing account, as above) and the two CI identities. The writer gets **Storage Blob Data Contributor** on the container and the reader **Storage Blob Data Reader**:
+[`deploy/local.bicep`](deploy/local.bicep) is for server instances that run next to whoever uses them: inside a CI job (the action's `mode: local`) or on a developer's machine. It creates only the storage (new or existing account, as above) and the two CI identities. The writer gets **Storage Blob Data Contributor** on the container and the reader **Storage Blob Data Reader**:
 
 ```sh
-az deployment group create -g <resource group> -f deploy/ci.bicep \
+az deployment group create -g <resource group> -f deploy/local.bicep \
   -p storageAccountName=<account> writerSubjects='["<subject>"]' readerSubjects='["<subject>"]'
 ```
 
@@ -221,7 +221,7 @@ There is no config file to prepare. The template builds the TOML from its parame
 
 ## Using it from GitHub Actions
 
-Use [graycoreio/nx-remote-cache-action](https://github.com/graycoreio/nx-remote-cache-action). It exchanges the job's GitHub OIDC token for an Entra token and exports both Nx variables:
+Use the [nx-remote-cache action](https://github.com/graycoreio/github-actions/tree/main/nx-remote-cache) from graycoreio/github-actions. It exchanges the job's GitHub OIDC token for an Entra token and exports both Nx variables:
 
 ```yaml
 permissions:
@@ -229,7 +229,7 @@ permissions:
   contents: read
 
 steps:
-  - uses: graycoreio/nx-remote-cache-action@v1.0.0
+  - uses: graycoreio/github-actions/nx-remote-cache@main
     with:
       server-url: https://<server>
       tenant-id: <tenantId output>
@@ -239,18 +239,27 @@ steps:
   - run: npx nx affected -t build test lint
 ```
 
-That's the hosted server. For the server inside each CI job, use `mode: local` with `ci.bicep`'s outputs (`storage-account`, `storage-container` instead of `server-url`, `api-scope`). The action's README covers both modes, the inputs, fork PRs and anonymous read, error messages, and using `continue-on-error` for jobs that can't get a token.
+That's the hosted server. For a local instance inside each CI job, use `mode: local` with `local.bicep`'s outputs (`storage-account`, `storage-container` instead of `server-url`, `api-scope`). The action's README covers both modes, the inputs, fork PRs and anonymous read, error messages, and using `continue-on-error` for jobs that can't get a token.
 
 Developers use their own Azure identity rather than CI's; see [Developer access](#developer-access).
 
 ## Developer access
 
-Developers authenticate as themselves (`az login`). Whether they get read-only or read+write is decided by group membership, set with each template's `readerGroupObjectIds` and `writerGroupObjectIds` parameters. CI is unaffected: pull requests only ever get the reader identity.
+Developers authenticate as themselves (`az login`), never as CI. What decides whether they can write depends on **where the server instance they talk to runs**:
+
+| Instance | Where | Read vs write decided by | Granted with |
+|---|---|---|---|
+| [Hosted server](#hosted-server-1) | Shared, in Azure (`hosted.bicep`) | The developer's **app role**: `Cache.Read` / `Cache.Write` | `hosted.bicep`: `readerGroupObjectIds` / `writerGroupObjectIds` |
+| [Local instance](#local-instance-binary-or-docker) | The developer's machine (binary or Docker) | The developer's **storage role** on the container: Storage Blob Data Reader / Contributor | `local.bicep`: `readerGroupObjectIds` / `writerGroupObjectIds` |
+
+CI is unaffected by any of this: pull requests only ever get the reader identity.
 
 > [!WARNING]
-> Entries a developer writes are served to every CI run with the same task hash. A laptop's builds are less reproducible than CI's (local state, uncommitted changes, tool versions), and a compromised laptop could poison the cache. Keep the writer group small. Every blob records who wrote it (the user's object id) in its metadata, so a bad entry can be traced.
+> Entries a developer writes are served to every CI run with the same task hash. A laptop's builds are less reproducible than CI's (local state, uncommitted changes, tool versions), and a compromised laptop could poison the cache. Keep the writer groups small. Every blob records who wrote it in its metadata (the user's object id via the hosted server; for a local instance, the static token's name: `dev-<username>` with Docker, whatever you configure for the binary), so a bad entry can be traced.
 
-**With the hosted server:** the groups get the app roles `Cache.Read` or `Cache.Write`. Developers fetch a token for the cache API, which carries their roles (via group membership), and point Nx straight at the server:
+### Hosted server
+
+The groups get the app roles `Cache.Read` or `Cache.Write`. Developers fetch a token for the cache API, which carries their roles (via group membership), and point Nx straight at the server:
 
 ```sh
 export NX_SELF_HOSTED_REMOTE_CACHE_SERVER=https://<server>
@@ -259,31 +268,43 @@ export NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN=$(az account get-access-token --
 
 Anyone in neither group gets `AADSTS50105`, because the app requires role assignment. These tokens last 60–90 minutes; fetch a new one when Nx reports `Unauthorized`.
 
-**With the server inside each CI job (no hosted server):** the groups get Storage Blob Data **Reader** or **Contributor** on the container. Developers run the server locally, authenticated as themselves. Read-only developers use the same setup: storage refuses their uploads, the server answers `403`, and Nx skips them. Two ways:
+### Local instance (binary or Docker)
+
+A developer runs the server on their own machine, talking to the shared storage as themselves. What they can do is their own role on the container, enforced by Azure Storage:
+- **Storage Blob Data Contributor:** read and write.
+- **Storage Blob Data Reader:** read only, with the same setup: storage refuses their uploads, the server answers `403`, and Nx skips them.
+
+This works alongside either deployment, as long as the developer has a storage role:
+- **`local.bicep`** grants it through its `readerGroupObjectIds` / `writerGroupObjectIds`.
+- **A hosted-only deployment** (`hosted.bicep`) grants app roles, which a local instance doesn't use. There, give the groups a storage role on the container separately: deploy `local.bicep`'s group parameters too (which also gives the CI identities storage roles), or add the role assignment by hand.
+
+Two ways to run it:
 
 - **Docker:** [`docker-compose.dev.yml`](docker-compose.dev.yml) runs the server next to Microsoft's Azure CLI image. A small sidecar ([`scripts/az-token-endpoint.py`](scripts/az-token-endpoint.py)) stands in for Azure's managed-identity token endpoint, backed by an `az login` kept in a Docker volume. The server image needs no Azure CLI and no keys.
 
   ```sh
-  docker compose -f docker-compose.dev.yml run --rm az az login --use-device-code   # once
+  scripts/dev-compose.sh run --rm az az login --use-device-code   # once
   export NX_CACHE_STORAGE_ACCOUNT=<storageAccount> NX_CACHE_STORAGE_CONTAINER=<storageContainer>
-  docker compose -f docker-compose.dev.yml up -d
+  scripts/dev-compose.sh                                          # docker compose ... up -d
   export NX_SELF_HOSTED_REMOTE_CACHE_SERVER=http://127.0.0.1:3000
   export NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN=local-dev-token
   ```
 
-  The sidecar is not published to the host, requires a shared secret (`IDENTITY_HEADER`), and only issues Azure Storage tokens. The server is published on `127.0.0.1` only, which is why the well-known `local-dev-token` is acceptable (set `NX_CACHE_DEV_TOKEN_SHA256` for your own). Entries you write record `dev-<your username>`.
+  - **The sidecar** isn't published to the host, requires a shared secret (`IDENTITY_HEADER`), and only issues Azure Storage tokens.
+  - **`scripts/dev-compose.sh`** wraps `docker compose -f docker-compose.dev.yml`. On first use it writes a random secret to `.env`, because Compose can't generate one itself.
+  - **The server** is published on `127.0.0.1` only, which is why the well-known `local-dev-token` is acceptable; set `NX_CACHE_DEV_TOKEN_SHA256` to use your own. Entries you write record `dev-<your username>`.
 - **Binary:** `cargo run --release` with [`config/developer.example.toml`](config/developer.example.toml) and the Azure CLI installed on your machine (`developer_tools` mode).
 
-The token endpoint also works outside Docker: run `IDENTITY_HEADER=<secret> python3 scripts/az-token-endpoint.py`, then start any server in `managed_identity` mode with `IDENTITY_ENDPOINT=http://127.0.0.1:8080/metadata/identity/oauth2/token` and the same `IDENTITY_HEADER`.
+The token endpoint also works outside Docker: run `IDENTITY_HEADER=<secret> python3 scripts/az-token-endpoint.py`. Then start any server in `managed_identity` mode with `IDENTITY_ENDPOINT=http://127.0.0.1:8080/metadata/identity/oauth2/token` and the same `IDENTITY_HEADER`.
 
 ## Migrating from `@nx/azure-cache` (or another `@nx/*-cache` package)
 
 1. **Use Nx's built-in client.** It exists from Nx 20.8 onwards, and this server is tested with the versions in [Tested Nx versions](#tested-nx-versions).
 2. **Uninstall the old cache package, and the `@nx/powerpack-*-cache` equivalents.** Nx looks for those packages *before* it reads `NX_SELF_HOSTED_REMOTE_CACHE_SERVER`. If one is installed and finds its key (`NX_KEY`), Nx uses it and silently ignores this server. Also remove its config from `nx.json` (e.g. the `azure` block); `NX_KEY` / `nx register` are no longer needed. Nx Cloud (`nxCloudId` / `nxCloudAccessToken` in `nx.json`) likewise takes precedence over this server.
 3. **Start from an empty container.** Entries written by `@nx/azure-cache` use a different archive layout from Nx's built-in client, which rejects them ("Invalid exit code in cache artifact"), and a rejected read fails the run. They were also writable by every job holding the shared credential, so they should not be trusted. Expect one round of cold builds; the first default-branch push repopulates the cache.
-4. **Deploy** either the hosted server or the in-job setup (see [Deploying to Azure](#deploying-to-azure)), with subjects for every workflow trigger that will run the action (next section).
+4. **Deploy** either the hosted server or the local setup (see [Deploying to Azure](#deploying-to-azure)), with subjects for every workflow trigger that will run the action (next section).
 5. **Update every workflow that touched the cache:**
-   - Replace the old setup (connection-string env vars, cache-mode variables) with [nx-remote-cache-action](https://github.com/graycoreio/nx-remote-cache-action).
+   - Replace the old setup (connection-string env vars, cache-mode variables) with the [nx-remote-cache action](https://github.com/graycoreio/github-actions/tree/main/nx-remote-cache).
    - Grant `id-token: write` to each job that runs it. In a reusable workflow (`workflow_call`), the token is minted in the *caller's* context: if the caller declares `permissions`, it has to grant `id-token: write` too.
    - Put the deployment outputs (server URL, tenant id, client ids, API scope) in repository variables. None of them are secrets.
 6. **Clean up after the switch:** delete the old secrets (connection strings, `NX_KEY`) and the old container. If nothing else uses the account's keys, rotate them and disable shared-key access.

@@ -1,6 +1,6 @@
 // The two CI identities: a writer and a reader user-assigned managed identity, each trusting
-// GitHub Actions OIDC tokens for an exact list of subjects. Shared by main.bicep (hosted
-// server: the identities get app roles on the cache API) and ci.bicep (server inside the CI
+// GitHub Actions OIDC tokens for an exact list of subjects. Shared by hosted.bicep (hosted
+// server: the identities get app roles on the cache API) and local.bicep (server inside the CI
 // job: the identities get storage roles directly).
 
 param namePrefix string

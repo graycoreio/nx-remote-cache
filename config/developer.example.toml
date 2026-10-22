@@ -1,7 +1,7 @@
 # A developer running the server locally against the shared cache storage, with their own
-# `az login` (for setups without a hosted server, i.e. deploy/ci.bicep).
+# `az login` (a local instance; storage roles from deploy/local.bicep).
 #
-# What you can do is your Azure role on the container, granted through ci.bicep's
+# What you can do is your Azure role on the container, granted through local.bicep's
 # readerGroupObjectIds / writerGroupObjectIds. The token scope below doesn't change that: with
 # only the reader role, uploads are refused by storage and Nx simply skips them.
 #
@@ -26,4 +26,5 @@ auth = { mode = "developer_tools" }
 #   cargo run --release -- generate-token
 [[auth.providers]]
 type = "static"
-tokens = [{ name = "me", sha256 = "<sha256 from generate-token>", scope = "read_write" }]
+# The name is recorded on every entry you write: use yours.
+tokens = [{ name = "dev-<your name>", sha256 = "<sha256 from generate-token>", scope = "read_write" }]

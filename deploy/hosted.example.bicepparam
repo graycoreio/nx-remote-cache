@@ -1,7 +1,7 @@
 // Example: the daffodil cache. Subjects use GitHub's classic `sub` format; repositories created
 // after 2026-07-15 use the immutable `repo:OWNER@ID/REPO@ID:...` form instead. Check a real
 // token (e.g. with github/actions-oidc-debugger) before relying on these.
-using 'main.bicep'
+using 'hosted.bicep'
 
 // Existing account in the `daffodil` resource group. For a fresh, isolated setup instead, set
 // createStorageAccount = true and pick a new globally unique name.

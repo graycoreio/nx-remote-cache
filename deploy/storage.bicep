@@ -1,6 +1,6 @@
 // Storage for nx-remote-cache: a new or existing account, the cache container, data-plane role
 // assignments on that container only, and an optional lifecycle (expiry) rule.
-// Deployed as a module (by main.bicep and ci.bicep), so the account may live in another
+// Deployed as a module (by hosted.bicep and local.bicep), so the account may live in another
 // resource group.
 
 @description('Storage account name (3-24 lowercase letters and digits, globally unique if created).')

@@ -1,7 +1,7 @@
-# End-to-end test through graycoreio/nx-remote-cache-action (its main branch, so server and
+# End-to-end test through graycoreio/github-actions/nx-remote-cache (its main branch, so server and
 # action changes are tested together) and a real Nx client, in both of the action's modes:
-#   remote: against the deployed server (deploy/main.bicep)
-#   local:  the server runs inside the job and uses storage directly (deploy/ci.bicep)
+#   remote: against the deployed server (deploy/hosted.bicep)
+#   local:  the server runs inside the job and uses storage directly (deploy/local.bicep)
 #
 # Push to main → the action requests the WRITER identity: uploads must land and be read back.
 # Pull request → the READER identity: reads work, uploads are skipped without failing the run.
@@ -10,8 +10,8 @@
 #
 # Configure with repository variables (Settings → Secrets and variables → Actions → Variables),
 # from the deployment outputs. The job is skipped while they are unset:
-#   NX_CACHE_E2E_URL, NX_CACHE_E2E_API_SCOPE                       (main.bicep)
-#   NX_CACHE_E2E_STORAGE_ACCOUNT, NX_CACHE_E2E_STORAGE_CONTAINER   (ci.bicep)
+#   NX_CACHE_E2E_URL, NX_CACHE_E2E_API_SCOPE                       (hosted.bicep)
+#   NX_CACHE_E2E_STORAGE_ACCOUNT, NX_CACHE_E2E_STORAGE_CONTAINER   (local.bicep)
 #   NX_CACHE_E2E_TENANT_ID, NX_CACHE_E2E_WRITER_CLIENT_ID, NX_CACHE_E2E_READER_CLIENT_ID (both)
 #
 # The "shared entry" check on PRs reads an entry written by a main run, so main must have run
@@ -89,7 +89,7 @@ jobs:
           echo "NXWS=$ws" >> "$GITHUB_ENV"
 
       - name: Configure the remote cache (action under test)
-        uses: graycoreio/nx-remote-cache-action@main
+        uses: graycoreio/github-actions/nx-remote-cache@main
         with:
           mode: ${{ matrix.mode }}
           tenant-id: ${{ vars.NX_CACHE_E2E_TENANT_ID }}

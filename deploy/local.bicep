@@ -1,15 +1,17 @@
-// nx-remote-cache with no hosted infrastructure: the server runs inside each CI job
-// (nx-remote-cache-action with `mode: local`) and talks to Blob Storage directly with the job's
-// identity. This template only creates what that needs:
+// nx-remote-cache without hosted infrastructure, for LOCAL INSTANCES: the server runs next to
+// whoever uses it, inside a CI job (graycoreio/github-actions/nx-remote-cache with
+// `mode: local`) or on a developer's machine, and talks to Blob Storage directly with that
+// caller's identity. This template only creates what that needs:
 //
 // - storage (a new or existing account) and the cache container;
-// - two managed identities trusting GitHub OIDC subjects: the writer gets Storage Blob Data
-//   Contributor on the container, the reader Storage Blob Data Reader.
+// - two CI managed identities trusting GitHub OIDC subjects: the writer gets Storage Blob Data
+//   Contributor on the container, the reader Storage Blob Data Reader;
+// - optionally, the same storage roles for developer groups.
 //
-// Who may write is decided by those role assignments, enforced by Azure: the in-job server and
-// its config run on the CI runner, so they are not a security boundary.
+// Who may write is decided by those role assignments, enforced by Azure: a local instance and
+// its config run on the caller's machine, so they are not a security boundary.
 //
-//   az deployment group create -g <rg> -f deploy/ci.bicep -p <params>
+//   az deployment group create -g <rg> -f deploy/local.bicep -p <params>
 
 @description('Prefix for the identity names.')
 param namePrefix string = 'nx-remote-cache'
@@ -82,7 +84,7 @@ module storage 'storage.bicep' = {
   }
 }
 
-// Inputs for nx-remote-cache-action with `mode: local`.
+// Inputs for graycoreio/github-actions/nx-remote-cache with `mode: local`.
 output tenantId string = tenant().tenantId
 output storageAccount string = storageAccountName
 output storageContainer string = containerName
