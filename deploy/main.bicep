@@ -53,6 +53,10 @@ param allowAnonymousRead bool = false
 @description('Optional sha256 of a static read-only token (from `nx-remote-cache generate-token`).')
 param devReadTokenSha256 string = ''
 
+@description('''Extra environment variables for the server, e.g. per-key config overrides that have no
+parameter here: [{ name: 'NX_CACHE__SERVER__MAX_ARTIFACT_BYTES', value: '4294967296' }]''')
+param extraEnv array = []
+
 var tenantId = tenant().tenantId
 var apiUniqueName = namePrefix
 var apiIdentifierUri = 'api://${tenantId}/${apiUniqueName}'
@@ -287,9 +291,12 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             cpu: json('0.5')
             memory: '1Gi'
           }
-          env: [
-            { name: 'NX_CACHE_CONFIG_TOML', value: join(configLines, '\n') }
-          ]
+          env: concat(
+            [
+              { name: 'NX_CACHE_CONFIG_TOML', value: join(configLines, '\n') }
+            ],
+            extraEnv
+          )
           probes: [
             {
               type: 'Liveness'
