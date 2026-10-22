@@ -68,8 +68,23 @@ runs:
           exit 0
         fi
 
+        # POST/GET that fails with the service's own error message instead of curl's bare
+        # "returned error: 400". Entra's errors say exactly what is wrong, e.g. AADSTS70021
+        # quotes the subject GitHub presented when no federated credential matches it.
+        fetch() {
+          local out code body
+          out=$(curl -sS -w '\n%{http_code}' "$@") || { echo "::error::request to ${*: -1} failed" >&2; return 1; }
+          code=${out##*$'\n'}
+          body=${out%$'\n'*}
+          if [ "$code" != 200 ]; then
+            echo "::error::HTTP $code from ${*: -1}: $(jq -r '.error_description // .message // .' <<<"$body" 2>/dev/null || echo "$body")" >&2
+            return 1
+          fi
+          printf '%s' "$body"
+        }
+
         github_oidc() {
-          curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+          fetch -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$1" | jq -er .value
         }
 
@@ -84,16 +99,17 @@ runs:
             [ "$want" = write ] && client_id="$WRITER_CLIENT_ID"
             : "${TENANT_ID:?tenant-id is required}" "${client_id:?writer/reader client id is required}" "${API_SCOPE:?api-scope is required}"
             assertion=$(github_oidc api://AzureADTokenExchange)
-            token=$(curl -sSf "https://login.microsoftonline.com/$TENANT_ID/oauth2/v2.0/token" \
+            token=$(fetch \
               --data-urlencode "client_id=$client_id" \
               --data-urlencode "scope=$API_SCOPE" \
               --data-urlencode "grant_type=client_credentials" \
               --data-urlencode "client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer" \
-              --data-urlencode "client_assertion=$assertion" | jq -er .access_token)
+              --data-urlencode "client_assertion=$assertion" \
+              "https://login.microsoftonline.com/$TENANT_ID/oauth2/v2.0/token" | jq -er .access_token)
             ;;
           mint)
             assertion=$(github_oidc "${GITHUB_AUDIENCE:-$server}")
-            token=$(curl -sSf -X POST -H "Authorization: Bearer $assertion" "$server/v1/token/github" | jq -er .token)
+            token=$(fetch -X POST -H "Authorization: Bearer $assertion" "$server/v1/token/github" | jq -er .token)
             ;;
           *)
             echo "::error::unknown provider '$PROVIDER' (expected entra or mint)"

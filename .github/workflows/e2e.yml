@@ -1,0 +1,146 @@
+# End-to-end test against a deployed server, through this repo's action and a real Nx client.
+#
+# Push to main → the action requests the WRITER identity: uploads must land and be read back.
+# Pull request → the READER identity: reads work, uploads are skipped without failing the run.
+# (No workflow_dispatch: its OIDC subject is the branch, which matches neither identity's
+# federated credential on non-main branches, and asks for the reader identity on main.)
+#
+# Configure with repository variables (Settings → Secrets and variables → Actions → Variables),
+# from the deployment outputs of deploy/main.bicep. The job is skipped while they are unset:
+#   NX_CACHE_E2E_URL, NX_CACHE_E2E_TENANT_ID, NX_CACHE_E2E_API_SCOPE,
+#   NX_CACHE_E2E_WRITER_CLIENT_ID, NX_CACHE_E2E_READER_CLIENT_ID
+#
+# The "shared entry" check on PRs reads an entry written by a main run, so main must have run
+# this workflow at least once against the deployment.
+
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NX_VERSION: 23.3.0
+  NX_DAEMON: 'false'
+  NX_NO_CLOUD: 'true'
+
+jobs:
+  e2e:
+    # Fork PRs get no OIDC token (the action then turns the cache off), so there is nothing to test.
+    if: >-
+      vars.NX_CACHE_E2E_URL != '' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Create a throwaway Nx workspace
+        run: |
+          ws="$RUNNER_TEMP/nxws"
+          mkdir -p "$ws/libs/e2e"
+          cd "$ws"
+          cat > package.json <<EOF
+          { "name": "nx-cache-e2e", "private": true, "devDependencies": { "nx": "$NX_VERSION" } }
+          EOF
+          echo '{ "targetDefaults": { "build": { "cache": true } } }' > nx.json
+          # Outputs live outside the project root so deleting them doesn't change the hash.
+          cat > libs/e2e/project.json <<'EOF'
+          { "name": "e2e", "root": "libs/e2e",
+            "targets": { "build": {
+              "command": "mkdir -p dist/e2e && echo \"$(date +%s%N)-$RANDOM\" > dist/e2e/out.txt",
+              "outputs": ["{workspaceRoot}/dist/e2e"] } } }
+          EOF
+          git init -q
+          npm install --no-audit --no-fund --silent
+          echo "NXWS=$ws" >> "$GITHUB_ENV"
+
+      - name: Configure the remote cache (action under test)
+        uses: ./
+        with:
+          server-url: ${{ vars.NX_CACHE_E2E_URL }}
+          tenant-id: ${{ vars.NX_CACHE_E2E_TENANT_ID }}
+          api-scope: ${{ vars.NX_CACHE_E2E_API_SCOPE }}
+          writer-client-id: ${{ vars.NX_CACHE_E2E_WRITER_CLIENT_ID }}
+          reader-client-id: ${{ vars.NX_CACHE_E2E_READER_CLIENT_ID }}
+
+      - name: Expected access and token claims
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = "refs/heads/${{ github.event.repository.default_branch }}" ]; then
+            want=Cache.Write
+          else
+            want=Cache.Read
+          fi
+          echo "WANT=$want" >> "$GITHUB_ENV"
+          # Claims only; the token itself stays masked.
+          payload=$(cut -d. -f2 <<<"$NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN" | tr '_-' '/+')
+          while [ $(( ${#payload} % 4 )) -ne 0 ]; do payload="$payload="; done
+          claims=$(base64 -d <<<"$payload")
+          jq '{iss, aud, azp, oid, roles, lifetime_minutes: ((.exp - .iat) / 60 | floor)}' <<<"$claims"
+          jq -e --arg want "$want" '.roles | index($want) != null' <<<"$claims" >/dev/null \
+            || { echo "::error::expected role $want in the token"; exit 1; }
+
+      - name: Protocol checks
+        run: |
+          url="$NX_SELF_HOSTED_REMOTE_CACHE_SERVER/v1/cache"
+          auth="Authorization: Bearer $NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN"
+          hash="e2eprobe${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
+          status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          expect() { [ "$2" = "$3" ] && echo "ok   $1: $2" || { echo "::error::$1: expected $3, got $2"; exit 1; }; }
+
+          expect "GET missing entry" "$(status -H "$auth" "$url/$hash")" 404
+          expect "GET without token" "$(status "$url/$hash")" 401
+          if [ "$WANT" = Cache.Write ]; then
+            expect "PUT new entry" "$(status -X PUT -H "$auth" --data probe "$url/$hash")" 200
+            expect "PUT same entry again" "$(status -X PUT -H "$auth" --data other "$url/$hash")" 409
+            expect "GET stored entry" "$(curl -s -H "$auth" "$url/$hash")" probe
+          else
+            expect "PUT with reader token" "$(status -X PUT -H "$auth" --data probe "$url/$hash")" 403
+            expect "GET after refused PUT" "$(status -H "$auth" "$url/$hash")" 404
+          fi
+
+      - name: Nx round trip (new hash per run)
+        working-directory: ${{ env.NXWS }}
+        run: |
+          build() { npx nx build e2e --output-style=static 2>&1 | tee "$RUNNER_TEMP/nx.log"; }
+          fresh() { npx nx reset >/dev/null 2>&1; rm -rf dist; }
+
+          echo "run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" > libs/e2e/input.txt
+          fresh; build
+          first=$(cat dist/e2e/out.txt)
+          fresh; build
+          if [ "$WANT" = Cache.Write ]; then
+            grep -q '\[remote cache\]' "$RUNNER_TEMP/nx.log" || { echo "::error::writer: second build was not served from the remote cache"; exit 1; }
+            [ "$(cat dist/e2e/out.txt)" = "$first" ] || { echo "::error::writer: restored output differs"; exit 1; }
+            echo "ok   writer: stored, then restored byte-identical output"
+          else
+            ! grep -q '\[remote cache\]' "$RUNNER_TEMP/nx.log" || { echo "::error::reader: upload was not skipped"; exit 1; }
+            echo "ok   reader: upload skipped without failing the run"
+          fi
+
+      - name: Nx shared entry (written by main, read by PRs)
+        working-directory: ${{ env.NXWS }}
+        run: |
+          echo "shared-v1" > libs/e2e/input.txt
+          npx nx reset >/dev/null 2>&1; rm -rf dist
+          npx nx build e2e --output-style=static 2>&1 | tee "$RUNNER_TEMP/nx.log"
+          if [ "$WANT" = Cache.Write ]; then
+            # First main run stores it; later ones hit it (and Nx's upload then gets a silent 409).
+            echo "ok   writer: shared entry built or restored"
+          else
+            grep -q '\[remote cache\]' "$RUNNER_TEMP/nx.log" \
+              || { echo "::error::reader: shared entry not found; has main run this workflow against this deployment?"; exit 1; }
+            echo "ok   reader: read the entry main wrote"
+          fi
