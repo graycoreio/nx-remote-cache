@@ -7,14 +7,14 @@
 #   server    nx-remote-cache in `managed_identity` mode, pointed at the sidecar.
 #
 # What you can do in the cache is your Azure role on the container (Storage Blob Data Reader or
-# Contributor, e.g. via ci.bicep's readerGroupObjectIds / writerGroupObjectIds). Readers can use
+# Contributor, e.g. via local.bicep's readerGroupObjectIds / writerGroupObjectIds). Readers can use
 # this file unchanged: storage refuses their uploads, and Nx skips them.
 #
-# One-time login (kept in the `az-login` volume):
-#   docker compose -f docker-compose.dev.yml run --rm az az login --use-device-code
-# Then, with NX_CACHE_STORAGE_ACCOUNT / NX_CACHE_STORAGE_CONTAINER in your environment or a
-# .env file next to this one:
-#   docker compose -f docker-compose.dev.yml up -d
+# Use it through scripts/dev-compose.sh, which on first use writes a random sidecar secret
+# (NX_CACHE_IDENTITY_HEADER) to .env. One-time login (kept in the `az-login` volume):
+#   scripts/dev-compose.sh run --rm az az login --use-device-code
+# Then, with NX_CACHE_STORAGE_ACCOUNT / NX_CACHE_STORAGE_CONTAINER in your environment or in .env:
+#   scripts/dev-compose.sh
 #   export NX_SELF_HOSTED_REMOTE_CACHE_SERVER=http://127.0.0.1:3000
 #   export NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN=local-dev-token
 #
@@ -22,7 +22,9 @@
 # 127.0.0.1. Set NX_CACHE_DEV_TOKEN_SHA256 (from `nx-remote-cache hash-token <yours>`) to use
 # your own.
 
-x-identity-header: &identity-header ${NX_CACHE_IDENTITY_HEADER:-local-dev-identity-header}
+# Shared secret the server must present to the token sidecar (x-identity-header): keeps requests
+# that don't carry it, e.g. server-side request forgery, from obtaining your storage tokens.
+x-identity-header: &identity-header ${NX_CACHE_IDENTITY_HEADER:?run scripts/dev-compose.sh, which generates it}
 
 services:
   az:
