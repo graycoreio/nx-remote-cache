@@ -7,6 +7,8 @@ set -euo pipefail
 
 # Account SAS signed with Azurite's PUBLIC well-known dev key (not a secret).
 export AZURITE_SAS_TOKEN='se=2035-01-01T00%3A00Z&sp=rwdlac&sv=2026-04-06&ss=b&srt=sco&sig=cO88Suxa2pemR0IUIqL5uQm6F%2BL1Z18nhX7zSLZ8up8%3D'
+# Read-only (sp=rl) SAS for the nx-cache-test container, same key: a store that may read but not write.
+export AZURITE_READONLY_SAS_TOKEN='se=2035-01-01T00%3A00Z&sp=rl&sv=2026-04-06&sr=c&sig=csmnGXB3cU%2BdKTItElaTykucnn9UtZslP65aLYjq3J8%3D'
 export AZURITE_ENDPOINT="${AZURITE_ENDPOINT:-http://127.0.0.1:10000/devstoreaccount1}"
 export AZURITE_CONTAINER="${AZURITE_CONTAINER:-nx-cache-test}"
 

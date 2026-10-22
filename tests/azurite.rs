@@ -198,3 +198,39 @@ async fn short_body_creates_nothing() {
         assert!(store.get(&key).await.unwrap().is_none(), "{name}");
     }
 }
+
+#[tokio::test]
+async fn read_only_credential_is_reported_as_write_denied() {
+    // A read-only identity (here: a read-only SAS) must come back as WriteDenied, which the
+    // handler turns into a 403 that Nx skips, rather than a backend error that fails the run.
+    if std::env::var("AZURITE_READONLY_SAS_TOKEN").is_err() {
+        eprintln!("skipping: AZURITE_READONLY_SAS_TOKEN not set");
+        return;
+    }
+    let endpoint = std::env::var("AZURITE_ENDPOINT")
+        .unwrap_or_else(|_| "http://127.0.0.1:10000/devstoreaccount1".into());
+    let config: AzureConfig = serde_json::from_value(json!({
+        "endpoint": endpoint,
+        "container": "nx-cache-test",
+        "prefix": format!("test-{}", uuid::Uuid::new_v4().simple()),
+        // 1 MiB blocks, so the 3 MiB case takes the staged-blocks path.
+        "block_size": 1024 * 1024,
+        "auth": { "mode": "sas", "sas_token_env": "AZURITE_READONLY_SAS_TOKEN" },
+    }))
+    .unwrap();
+    let store = AzureBlobStore::new(&config).unwrap();
+    store.ready().await.unwrap();
+
+    let key = CacheKey::parse("readonly").unwrap();
+    for len in [100, 3 * 1024 * 1024] {
+        let data = payload(len);
+        let result = store
+            .put_if_absent(&key, len as u64, chunked(&data), &meta())
+            .await;
+        assert!(
+            matches!(result, Err(StoreError::WriteDenied(_))),
+            "{len} bytes: {result:?}"
+        );
+    }
+    assert!(store.get(&key).await.unwrap().is_none());
+}

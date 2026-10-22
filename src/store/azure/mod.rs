@@ -254,6 +254,7 @@ impl CacheStore for AzureBlobStore {
         match result {
             Ok(()) => Ok(PutOutcome::Created),
             Err(e) if is_conflict(&e) => Ok(PutOutcome::AlreadyExists),
+            Err(e) if is_write_denied(&e) => Err(StoreError::WriteDenied(explain(&e))),
             Err(e) => {
                 // A concurrent writer may have committed first, which can surface as an error
                 // other than 409 (e.g. our staged blocks were discarded by their commit).
@@ -299,6 +300,12 @@ fn is_conflict(e: &azure_core::Error) -> bool {
         e.http_status(),
         Some(StatusCode::Conflict | StatusCode::PreconditionFailed)
     ) || error_code(e) == Some("BlobAlreadyExists")
+}
+
+/// Authenticated, but the role (or SAS) doesn't include writing.
+fn is_write_denied(e: &azure_core::Error) -> bool {
+    e.http_status() == Some(StatusCode::Forbidden)
+        && error_code(e) == Some("AuthorizationPermissionMismatch")
 }
 
 fn backend(e: azure_core::Error) -> StoreError {
@@ -404,6 +411,19 @@ mod tests {
     fn unexplained_errors_pass_through() {
         let e = http_error(StatusCode::InternalServerError, "InternalError");
         assert_eq!(explain(&e), e.to_string());
+    }
+
+    #[test]
+    fn write_denial_is_recognised() {
+        assert!(is_write_denied(&http_error(
+            StatusCode::Forbidden,
+            "AuthorizationPermissionMismatch"
+        )));
+        // Bad credentials are a misconfiguration, not a read-only identity: keep them loud.
+        assert!(!is_write_denied(&http_error(
+            StatusCode::Forbidden,
+            "AuthenticationFailed"
+        )));
     }
 
     #[test]

@@ -81,6 +81,14 @@ pub async fn put(
         }
         Ok(PutOutcome::AlreadyExists) => Err(ApiError::Conflict),
         Err(StoreError::Body(e)) => Err(ApiError::BadRequest(format!("upload failed: {e}"))),
+        // 403, not 500: Nx skips the upload on 403 instead of failing the run. This is how a
+        // read-only identity behind a server configured as writable behaves.
+        Err(StoreError::WriteDenied(e)) => {
+            tracing::warn!(error = %e, hash, "storage refused the write");
+            Err(ApiError::Forbidden(
+                "this server's storage identity can't write to the cache".into(),
+            ))
+        }
         Err(e) => {
             tracing::error!(error = %e, hash, "cache write failed");
             Err(ApiError::Internal)
