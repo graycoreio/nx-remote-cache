@@ -64,11 +64,11 @@ fn default_max_artifact_bytes() -> u64 {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StorageConfig {
     Azure(Box<AzureConfig>),
     /// Not persistent; for local smoke tests only.
-    Memory,
+    Memory {},
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,7 +78,7 @@ pub struct AuthConfig {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProviderConfig {
     Entra(EntraConfig),
     Static {
@@ -118,7 +118,7 @@ impl Config {
                 tracing::info!(storage = store.describe(), "using Azure Blob storage");
                 Arc::new(store)
             }
-            StorageConfig::Memory => {
+            StorageConfig::Memory {} => {
                 tracing::warn!("using in-memory storage: nothing is persisted");
                 Arc::new(MemoryStore::new())
             }
@@ -269,6 +269,36 @@ scope = "read"
             "#,
         );
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn rejects_typos_in_every_section() {
+        let cases = [
+            (
+                "memory storage",
+                "[storage]\ntype = \"memory\"\nprefx = \"x\"\n[[auth.providers]]\ntype = \"anonymous\"\nscope = \"read\"",
+            ),
+            (
+                "static provider",
+                "[storage]\ntype = \"memory\"\n[[auth.providers]]\ntype = \"static\"\ntokens = []\nscopee = \"read\"",
+            ),
+            (
+                "anonymous provider",
+                "[storage]\ntype = \"memory\"\n[[auth.providers]]\ntype = \"anonymous\"\nscope = \"read\"\nscopee = \"x\"",
+            ),
+            (
+                "entra provider",
+                "[storage]\ntype = \"memory\"\n[[auth.providers]]\ntype = \"entra\"\ntenant_id = \"t\"\naudiences = [\"a\"]\nwrite_rol = \"x\"",
+            ),
+            (
+                "azure storage",
+                "[storage]\ntype = \"azure\"\naccount = \"x\"\ncontainer = \"c\"\nprefx = \"y\"\nauth = { mode = \"developer_tools\" }\n[[auth.providers]]\ntype = \"anonymous\"\nscope = \"read\"",
+            ),
+        ];
+        for (name, toml) in cases {
+            let err = parse(toml).expect_err(name).to_string();
+            assert!(err.contains("unknown field"), "{name}: {err}");
+        }
     }
 
     #[test]
