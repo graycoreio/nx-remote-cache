@@ -1,0 +1,29 @@
+# A developer running the server locally against the shared cache storage, with their own
+# `az login` (for setups without a hosted server, i.e. deploy/ci.bicep).
+#
+# What you can do is your Azure role on the container, granted through ci.bicep's
+# readerGroupObjectIds / writerGroupObjectIds. The token scope below doesn't change that: with
+# only the reader role, uploads are refused by storage and Nx simply skips them.
+#
+#   cp config/developer.example.toml config.toml   # then fill in the <values>
+#   az login
+#   cargo run --release                             # uses your machine's Azure CLI
+#   export NX_SELF_HOSTED_REMOTE_CACHE_SERVER=http://127.0.0.1:3000
+#   export NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN=<your token>
+#
+# For Docker instead, see docker-compose.dev.yml.
+
+[server]
+listen = "127.0.0.1:3000"
+
+[storage]
+type = "azure"
+account = "<storageAccount output>"
+container = "<storageContainer output>"
+auth = { mode = "developer_tools" }
+
+# Nx authenticates to your local server with a token you make up:
+#   cargo run --release -- generate-token
+[[auth.providers]]
+type = "static"
+tokens = [{ name = "me", sha256 = "<sha256 from generate-token>", scope = "read_write" }]

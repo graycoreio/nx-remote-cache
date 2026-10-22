@@ -1,0 +1,66 @@
+# A developer's local cache server against the real Azure storage, authenticated as YOU via the
+# Azure CLI, with no keys and no Azure CLI inside the server image.
+#
+#   az        Microsoft's Azure CLI image, running scripts/az-token-endpoint.py: a stand-in for
+#             Azure's managed-identity token endpoint, backed by your `az login`. Not published
+#             to the host; it only issues Azure Storage tokens.
+#   server    nx-remote-cache in `managed_identity` mode, pointed at the sidecar.
+#
+# What you can do in the cache is your Azure role on the container (Storage Blob Data Reader or
+# Contributor, e.g. via ci.bicep's readerGroupObjectIds / writerGroupObjectIds). Readers can use
+# this file unchanged: storage refuses their uploads, and Nx skips them.
+#
+# One-time login (kept in the `az-login` volume):
+#   docker compose -f docker-compose.dev.yml run --rm az az login --use-device-code
+# Then, with NX_CACHE_STORAGE_ACCOUNT / NX_CACHE_STORAGE_CONTAINER in your environment or a
+# .env file next to this one:
+#   docker compose -f docker-compose.dev.yml up -d
+#   export NX_SELF_HOSTED_REMOTE_CACHE_SERVER=http://127.0.0.1:3000
+#   export NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN=local-dev-token
+#
+# local-dev-token is a well-known, loopback-only token: the server is only published on
+# 127.0.0.1. Set NX_CACHE_DEV_TOKEN_SHA256 (from `nx-remote-cache hash-token <yours>`) to use
+# your own.
+
+x-identity-header: &identity-header ${NX_CACHE_IDENTITY_HEADER:-local-dev-identity-header}
+
+services:
+  az:
+    image: mcr.microsoft.com/azure-cli:2.91.0
+    command: ["python3", "/token-endpoint.py"]
+    environment:
+      IDENTITY_HEADER: *identity-header
+      ALLOWED_RESOURCES: https://storage.azure.com
+      PORT: "8080"
+    volumes:
+      - az-login:/root/.azure
+      - ./scripts/az-token-endpoint.py:/token-endpoint.py:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')"]
+      interval: 2s
+      retries: 15
+
+  server:
+    build: .
+    image: nx-remote-cache:dev
+    depends_on:
+      az:
+        condition: service_healthy
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      IDENTITY_ENDPOINT: http://az:8080/metadata/identity/oauth2/token
+      IDENTITY_HEADER: *identity-header
+      NX_CACHE_CONFIG_TOML: |
+        [server]
+        listen = "0.0.0.0:3000"
+        [storage]
+        type = "azure"
+        account = "${NX_CACHE_STORAGE_ACCOUNT:?set NX_CACHE_STORAGE_ACCOUNT}"
+        container = "${NX_CACHE_STORAGE_CONTAINER:?set NX_CACHE_STORAGE_CONTAINER}"
+        auth = { mode = "managed_identity" }
+        [[auth.providers]]
+        type = "static"
+        tokens = [{ name = "dev-${USER:-unknown}", sha256 = "${NX_CACHE_DEV_TOKEN_SHA256:-0cd48eed49739dfdd99efaef37d251aae5a80866e5954763c6597943fff5ce9b}", scope = "read_write" }]
+
+volumes:
+  az-login: {}
