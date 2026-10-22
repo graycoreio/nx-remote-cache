@@ -1,0 +1,28 @@
+# TEMPORARY (throwaway PR branch only): a PR must NOT be able to obtain the writer identity's
+# token. Entra has to refuse, because the writer's federated credential only matches pushes to
+# main. Passes only if the exchange is rejected.
+name: E2E negative
+on: pull_request
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  pr-cannot-get-writer-token:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Request the WRITER identity's token from a pull_request job
+        run: |
+          gh_token=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -er .value)
+          echo "presented subject: $(cut -d. -f2 <<<"$gh_token" | tr '_-' '/+' | { p=$(cat); while [ $(( ${#p} % 4 )) -ne 0 ]; do p="$p="; done; base64 -d <<<"$p"; } | jq -r .sub)"
+          resp=$(curl -sS -w '\n%{http_code}' "https://login.microsoftonline.com/${{ vars.NX_CACHE_E2E_TENANT_ID }}/oauth2/v2.0/token" \
+            --data-urlencode "client_id=${{ vars.NX_CACHE_E2E_WRITER_CLIENT_ID }}" \
+            --data-urlencode "scope=${{ vars.NX_CACHE_E2E_API_SCOPE }}" \
+            --data-urlencode "grant_type=client_credentials" \
+            --data-urlencode "client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer" \
+            --data-urlencode "client_assertion=$gh_token")
+          code=${resp##*$'\n'}; body=${resp%$'\n'*}
+          if [ "$code" = 200 ]; then
+            echo "::error::Entra issued a WRITER token to a pull_request job"; exit 1
+          fi
+          echo "ok   Entra refused (HTTP $code): $(jq -r .error_description <<<"$body" | head -c 300)"
