@@ -44,10 +44,16 @@ param writerSubjects array
 @description('GitHub OIDC subjects allowed to READ, e.g. repo:graycoreio/daffodil:pull_request')
 param readerSubjects array
 
-@description('Entra group object ids whose members may read the cache with their own az login.')
+@description('Entra group object ids whose members may READ the cache with their own az login (Cache.Read).')
 param readerGroupObjectIds array = []
 
-@description('Allow requests without a token to read (e.g. fork PRs of a public repository).')
+@description('''Entra group object ids whose members may also WRITE with their own az login (Cache.Write).
+Entries they write are served to CI; keep this group small.''')
+param writerGroupObjectIds array = []
+
+@description('''Allow requests WITHOUT a token to read. This applies to anyone who can reach the server, not just
+CI: entries (build outputs and task terminal output) become readable to whoever has their hash, and
+downloads cost egress with no caller to rate-limit. Off unless you accept that.''')
 param allowAnonymousRead bool = false
 
 @description('Optional sha256 of a static read-only token (from `nx-remote-cache generate-token`).')
@@ -64,7 +70,6 @@ var readRoleId = guid(resourceGroup().id, namePrefix, 'Cache.Read')
 var writeRoleId = guid(resourceGroup().id, namePrefix, 'Cache.Write')
 var userScopeId = guid(resourceGroup().id, namePrefix, 'user_impersonation')
 var azureCliAppId = '04b07795-8ddb-461a-bbee-02f9e1bf7b46'
-var githubIssuer = 'https://token.actions.githubusercontent.com'
 
 // ---------------------------------------------------------------- Entra: the cache API
 
@@ -110,7 +115,8 @@ resource api 'Microsoft.Graph/applications@v1.0' = {
       value: 'Cache.Write'
       displayName: 'Write the Nx remote cache'
       description: 'Download and upload cache entries.'
-      allowedMemberTypes: ['Application']
+      // Users too, so developers in writerGroupObjectIds can write from their machines.
+      allowedMemberTypes: ['Application', 'User']
       isEnabled: true
     }
   ]
@@ -124,58 +130,39 @@ resource apiSp 'Microsoft.Graph/servicePrincipals@v1.0' = {
 
 // ---------------------------------------------------------------- CI identities
 
-resource writer 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: '${namePrefix}-ci-writer'
-  location: location
-}
-
-resource reader 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: '${namePrefix}-ci-reader'
-  location: location
-}
-
-// Federated credentials on one identity must be created one at a time (409 otherwise).
-@batchSize(1)
-resource writerCredentials 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = [
-  for (subject, i) in writerSubjects: {
-    parent: writer
-    name: 'github-${i}'
-    properties: {
-      issuer: githubIssuer
-      subject: subject
-      audiences: ['api://AzureADTokenExchange']
-    }
+module identities 'identities.bicep' = {
+  name: '${namePrefix}-identities'
+  params: {
+    namePrefix: namePrefix
+    location: location
+    writerSubjects: writerSubjects
+    readerSubjects: readerSubjects
   }
-]
-
-@batchSize(1)
-resource readerCredentials 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = [
-  for (subject, i) in readerSubjects: {
-    parent: reader
-    name: 'github-${i}'
-    properties: {
-      issuer: githubIssuer
-      subject: subject
-      audiences: ['api://AzureADTokenExchange']
-    }
-  }
-]
+}
 
 resource writerRole 'Microsoft.Graph/appRoleAssignedTo@v1.0' = {
   appRoleId: writeRoleId
-  principalId: writer.properties.principalId
+  principalId: identities.outputs.writerPrincipalId
   resourceId: apiSp.id
 }
 
 resource readerRole 'Microsoft.Graph/appRoleAssignedTo@v1.0' = {
   appRoleId: readRoleId
-  principalId: reader.properties.principalId
+  principalId: identities.outputs.readerPrincipalId
   resourceId: apiSp.id
 }
 
 resource groupReadRoles 'Microsoft.Graph/appRoleAssignedTo@v1.0' = [
   for groupId in readerGroupObjectIds: {
     appRoleId: readRoleId
+    principalId: groupId
+    resourceId: apiSp.id
+  }
+]
+
+resource groupWriteRoles 'Microsoft.Graph/appRoleAssignedTo@v1.0' = [
+  for groupId in writerGroupObjectIds: {
+    appRoleId: writeRoleId
     principalId: groupId
     resourceId: apiSp.id
   }
@@ -198,7 +185,9 @@ module storage 'storage.bicep' = {
     createAccount: createStorageAccount
     location: location
     containerName: containerName
-    serverPrincipalId: serverIdentity.properties.principalId
+    access: [
+      { principalId: serverIdentity.properties.principalId, role: 'contributor' }
+    ]
     manageLifecyclePolicy: manageLifecyclePolicy
     retentionDays: retentionDays
     ruleName: '${namePrefix}-expire'
@@ -329,5 +318,5 @@ output tenantId string = tenantId
 output apiClientId string = api.appId
 output apiScope string = '${apiIdentifierUri}/.default'
 output devScope string = '${apiIdentifierUri}/user_impersonation'
-output writerClientId string = writer.properties.clientId
-output readerClientId string = reader.properties.clientId
+output writerClientId string = identities.outputs.writerClientId
+output readerClientId string = identities.outputs.readerClientId

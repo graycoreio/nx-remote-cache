@@ -1,6 +1,7 @@
-// Storage for nx-remote-cache: a new or existing account, the cache container, the server's
-// role assignment on that container only, and an optional lifecycle (expiry) rule.
-// Deployed by main.bicep as a module, so the account may live in another resource group.
+// Storage for nx-remote-cache: a new or existing account, the cache container, data-plane role
+// assignments on that container only, and an optional lifecycle (expiry) rule.
+// Deployed as a module (by main.bicep and ci.bicep), so the account may live in another
+// resource group.
 
 @description('Storage account name (3-24 lowercase letters and digits, globally unique if created).')
 @minLength(3)
@@ -17,14 +18,24 @@ param sku string = 'Standard_LRS'
 
 param containerName string
 
-@description('Principal (object) id of the server identity, granted Storage Blob Data Contributor.')
-param serverPrincipalId string
+@description('Identities to grant access to the container: `contributor` (read and write) or `reader`.')
+param access blobAccess[]
 
 param manageLifecyclePolicy bool
 param retentionDays int
 param ruleName string
 
-var storageBlobDataContributor = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+type blobAccess = {
+  principalId: string
+  role: 'contributor' | 'reader'
+  @description('Defaults to ServicePrincipal (managed identities).')
+  principalType: ('ServicePrincipal' | 'Group' | 'User')?
+}
+
+var roleIds = {
+  contributor: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe' // Storage Blob Data Contributor
+  reader: '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1' // Storage Blob Data Reader
+}
 
 resource created 'Microsoft.Storage/storageAccounts@2023-05-01' = if (createAccount) {
   name: accountName
@@ -61,15 +72,17 @@ resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@20
   }
 }
 
-resource serverBlobAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: container
-  name: guid(container.id, serverPrincipalId, storageBlobDataContributor)
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributor)
-    principalId: serverPrincipalId
-    principalType: 'ServicePrincipal'
+resource blobAccessAssignments 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
+  for grant in access: {
+    scope: container
+    name: guid(container.id, grant.principalId, roleIds[grant.role])
+    properties: {
+      roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleIds[grant.role])
+      principalId: grant.principalId
+      principalType: grant.?principalType ?? 'ServicePrincipal'
+    }
   }
-}
+]
 
 // An account has a single lifecycle policy document: writing it replaces any existing rules.
 resource lifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = if (manageLifecyclePolicy) {

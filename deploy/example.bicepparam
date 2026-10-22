@@ -20,5 +20,6 @@ param readerSubjects = [
   'repo:graycoreio/daffodil:pull_request'
 ]
 
-// daffodil is public: fork PRs (which get no OIDC token) may read.
-param allowAnonymousRead = true
+// Anonymous read would make the cache readable by anyone who can reach the server, not just
+// fork PRs. Leave it off: fork PRs (which get no OIDC token) then build without the remote cache.
+param allowAnonymousRead = false
