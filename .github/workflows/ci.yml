@@ -45,19 +45,44 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --locked --all-targets --features mint
 
+  # The release build of the default variant, exactly as the release workflow runs it: on main
+  # it saves the cache that release builds (and later PRs) start from.
+  release-build:
+    runs-on: ubuntu-latest
+    container: rust:1.99-bookworm
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-x86_64-unknown-linux-gnu
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo build --release --locked --target x86_64-unknown-linux-gnu
+      - run: scripts/smoke-test-binary.sh target/x86_64-unknown-linux-gnu/release/nx-remote-cache
+      - uses: actions/upload-artifact@v7
+        with:
+          name: binary
+          path: target/x86_64-unknown-linux-gnu/release/nx-remote-cache
+          retention-days: 1
+
+  # Packages that binary the way releases do (no compiling in Docker), then runs the image.
   docker:
+    needs: release-build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v8
+        with:
+          name: binary
+          path: ${{ runner.temp }}/prebuilt/amd64
+      - run: chmod +x "$RUNNER_TEMP/prebuilt/amd64/nx-remote-cache"
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
           context: .
+          build-contexts: binary=${{ runner.temp }}/prebuilt
           push: false
           load: true
           tags: nx-remote-cache:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
       - name: Smoke test the image
         run: |
           docker run -d --name cache -p 3000:3000 \

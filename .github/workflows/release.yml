@@ -20,51 +20,44 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Built in the Dockerfile's build stage (Debian 12), so the binaries need glibc 2.34+ and match
-  # the image's runtime.
+  # Built in Debian 12 (the image's runtime), so the binaries need glibc 2.34+. Starts from the
+  # cache CI saves on main (same container, shared key, same cargo command).
   linux:
-    runs-on: ${{ matrix.platform.runner }}
+    runs-on: ${{ matrix.runner }}
+    container: rust:1.99-bookworm
     strategy:
       matrix:
-        platform:
+        include:
           - { arch: amd64, target: x86_64-unknown-linux-gnu, runner: ubuntu-latest }
           - { arch: arm64, target: aarch64-unknown-linux-gnu, runner: ubuntu-24.04-arm }
-        variant:
-          - { name: default, features: '', suffix: '' }
-          - { name: mint, features: mint, suffix: '-mint' }
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/build-push-action@v7
+      - uses: Swatinem/rust-cache@v2
         with:
-          context: .
-          target: binary
-          outputs: type=local,dest=out
-          build-args: FEATURES=${{ matrix.variant.features }}
-          cache-from: type=gha,scope=binary-${{ matrix.platform.arch }}${{ matrix.variant.suffix }}
-          cache-to: type=gha,mode=max,scope=binary-${{ matrix.platform.arch }}${{ matrix.variant.suffix }}
-      - run: scripts/smoke-test-binary.sh out/${{ matrix.platform.arch }}/nx-remote-cache
-      - id: archive
+          shared-key: release-${{ matrix.target }}
+          # A cache saved by a tag run is only visible to that tag.
+          save-if: ${{ github.ref_type != 'tag' }}
+      - run: scripts/build-release.sh out ${{ matrix.target }}
+      - name: Smoke test
         run: |
-          version=$([ "$GITHUB_REF_TYPE" = tag ] && echo "${GITHUB_REF_NAME#v}" || echo dev)
-          name="nx-remote-cache${{ matrix.variant.suffix }}-$version-${{ matrix.platform.target }}.tar.gz"
-          cp LICENSE out/${{ matrix.platform.arch }}/
-          tar -czf "$name" -C out/${{ matrix.platform.arch }} nx-remote-cache LICENSE
-          echo "name=$name" >> "$GITHUB_OUTPUT"
+          scripts/smoke-test-binary.sh out/default/nx-remote-cache
+          scripts/smoke-test-binary.sh out/mint/nx-remote-cache
+      - name: Archive
+        run: scripts/archive-release.sh out ${{ matrix.target }}
       - uses: actions/upload-artifact@v7
         with:
-          name: binary-${{ matrix.variant.name }}-${{ matrix.platform.target }}
-          path: ${{ steps.archive.outputs.name }}
+          name: binary-default-${{ matrix.target }}
+          path: dist/default/*.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: binary-mint-${{ matrix.target }}
+          path: dist/mint/*.tar.gz
           if-no-files-found: error
 
-  # One universal binary (Apple Silicon + Intel).
+  # One universal binary (Apple Silicon + Intel) per variant.
   darwin:
     runs-on: macos-latest
-    strategy:
-      matrix:
-        variant:
-          - { name: default, features: '', suffix: '' }
-          - { name: mint, features: mint, suffix: '-mint' }
     steps:
       - uses: actions/checkout@v7
       # Keep in step with the Dockerfile's rust image.
@@ -73,35 +66,26 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.variant.name }}
-      - name: Build
-        env:
-          FEATURES: ${{ matrix.variant.features }}
-        run: |
-          for target in aarch64-apple-darwin x86_64-apple-darwin; do
-            cargo build --release --locked --target "$target" ${FEATURES:+--features "$FEATURES"}
-          done
-          mkdir out
-          lipo -create -output out/nx-remote-cache \
-            target/aarch64-apple-darwin/release/nx-remote-cache \
-            target/x86_64-apple-darwin/release/nx-remote-cache
-          lipo -info out/nx-remote-cache
+          save-if: ${{ github.ref_type != 'tag' }}
+      - run: scripts/build-release.sh out aarch64-apple-darwin x86_64-apple-darwin
       - name: Smoke test
         run: |
-          scripts/smoke-test-binary.sh out/nx-remote-cache
-          # The Intel slice, under Rosetta.
-          arch -x86_64 out/nx-remote-cache hash-token smoke >/dev/null
-      - id: archive
-        run: |
-          version=$([ "$GITHUB_REF_TYPE" = tag ] && echo "${GITHUB_REF_NAME#v}" || echo dev)
-          name="nx-remote-cache${{ matrix.variant.suffix }}-$version-universal-apple-darwin.tar.gz"
-          cp LICENSE out/
-          tar -czf "$name" -C out nx-remote-cache LICENSE
-          echo "name=$name" >> "$GITHUB_OUTPUT"
+          for variant in default mint; do
+            scripts/smoke-test-binary.sh out/$variant/nx-remote-cache
+            # The Intel slice, under Rosetta.
+            arch -x86_64 out/$variant/nx-remote-cache hash-token smoke >/dev/null
+          done
+      - name: Archive
+        run: scripts/archive-release.sh out universal-apple-darwin
       - uses: actions/upload-artifact@v7
         with:
-          name: binary-${{ matrix.variant.name }}-universal-apple-darwin
-          path: ${{ steps.archive.outputs.name }}
+          name: binary-default-universal-apple-darwin
+          path: dist/default/*.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: binary-mint-universal-apple-darwin
+          path: dist/mint/*.tar.gz
           if-no-files-found: error
 
   # The image packages the Linux release binaries rather than compiling again; no RUN steps, so
@@ -115,8 +99,8 @@ jobs:
     strategy:
       matrix:
         variant:
-          - { name: default, features: '', suffix: '' }
-          - { name: mint, features: mint, suffix: '-mint' }
+          - { name: default, suffix: '' }
+          - { name: mint, suffix: '-mint' }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
