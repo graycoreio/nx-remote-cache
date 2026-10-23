@@ -25,6 +25,28 @@ The server is verified end to end against real Nx clients:
 
 Full scenario list: write, then remote hit with byte-identical output; read-only token (upload skipped, run passes); invalid, expired and role-less tokens (run fails); Entra reader/writer identities; anonymous read; the `mint` exchange; a server URL with a trailing slash.
 
+## Install
+
+Every [release](https://github.com/graycoreio/nx-remote-cache/releases) after v0.2.0 publishes:
+
+- **Binaries:** `nx-remote-cache-<version>-<target>.tar.gz` for
+  - `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` (glibc 2.34+: Ubuntu 22.04, Debian 12, RHEL 9 or newer),
+  - `universal-apple-darwin` (one binary for Apple Silicon and Intel Macs).
+
+  Archives named `nx-remote-cache-mint-…` are built with `--features mint`. Each release has a `SHA256SUMS` file, and every archive has a GitHub build-provenance attestation.
+- **Images:** `ghcr.io/graycoreio/nx-remote-cache:<version>` (and `:<version>-mint`) for `linux/amd64` and `linux/arm64`. The image contains the same binary as the Linux archives.
+
+```sh
+version=<version>
+target=universal-apple-darwin    # or x86_64-unknown-linux-gnu / aarch64-unknown-linux-gnu
+archive="nx-remote-cache-$version-$target.tar.gz"
+gh release download "v$version" --repo graycoreio/nx-remote-cache --pattern "$archive"
+gh attestation verify "$archive" --repo graycoreio/nx-remote-cache   # built by this repo's release workflow
+tar -xzf "$archive" nx-remote-cache && sudo install nx-remote-cache /usr/local/bin/
+```
+
+The macOS binary isn't notarised. Downloaded with `gh` or `curl` it runs as is; if you download it in a browser, macOS blocks it until you run `xattr -d com.apple.quarantine nx-remote-cache`.
+
 ## How it fits together
 
 ```
@@ -47,7 +69,7 @@ Full scenario list: write, then remote hit with byte-identical output; read-only
 | Where it runs | `storage.auth.mode` |
 |---|---|
 | Azure Container Apps / App Service / VM | `managed_identity` (optional `client_id` for a user-assigned identity) |
-| `cargo run` on a dev machine | `developer_tools`: your `az login` |
+| The binary or `cargo run` on a dev machine | `developer_tools`: your `az login` |
 | Docker on a dev machine | `sas`: [`scripts/dev-sas.sh`](scripts/dev-sas.sh) prints a short-lived user-delegation SAS |
 | Elsewhere | `client_secret` (a service principal) or `workload_identity` |
 | Azurite | `sas` with `endpoint = "http://…:10000/devstoreaccount1"` |
@@ -293,7 +315,7 @@ Two ways to run it:
   - **The sidecar** isn't published to the host, requires a shared secret (`IDENTITY_HEADER`), and only issues Azure Storage tokens.
   - **`scripts/dev-compose.sh`** wraps `docker compose -f docker-compose.dev.yml`. On first use it writes a random secret to `.env`, because Compose can't generate one itself.
   - **The server** is published on `127.0.0.1` only, which is why the well-known `local-dev-token` is acceptable; set `NX_CACHE_DEV_TOKEN_SHA256` to use your own. Entries you write record `dev-<your username>`.
-- **Binary:** `cargo run --release` with [`config/developer.example.toml`](config/developer.example.toml) and the Azure CLI installed on your machine (`developer_tools` mode).
+- **Binary:** a [release binary](#install) (or `cargo run --release`) with [`config/developer.example.toml`](config/developer.example.toml) and the Azure CLI installed on your machine (`developer_tools` mode).
 
 The token endpoint also works outside Docker: run `IDENTITY_HEADER=<secret> python3 scripts/az-token-endpoint.py`. Then start any server in `managed_identity` mode with `IDENTITY_ENDPOINT=http://127.0.0.1:8080/metadata/identity/oauth2/token` and the same `IDENTITY_HEADER`.
 
