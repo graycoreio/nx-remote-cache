@@ -1,5 +1,6 @@
-# End-to-end test through graycoreio/github-actions/nx-remote-cache (its main branch, so server and
-# action changes are tested together) and a real Nx client, in both of the action's modes:
+# End-to-end test through the nx-remote-cache action and a real Nx client, in both of the
+# action's modes. The action's home is graycoreio/github-actions/nx-remote-cache; until it is
+# merged there, its build is tested from graycoreio/nx-remote-cache-action@test/ts-action.
 #   remote: against the deployed server (deploy/hosted.bicep)
 #   local:  the server runs inside the job and uses storage directly (deploy/local.bicep)
 #
@@ -35,7 +36,7 @@ concurrency:
 env:
   NX_VERSION: 23.3.0
   # Local mode runs the server built from this commit; remote mode tests the deployed server.
-  SERVER_IMAGE: nx-remote-cache:e2e
+  SERVER_BIN: ${{ github.workspace }}/target/debug/nx-remote-cache
   NX_DAEMON: 'false'
   NX_NO_CLOUD: 'true'
 
@@ -57,16 +58,16 @@ jobs:
         with:
           node-version: 22
 
-      - name: Build the server image from this commit
-        if: matrix.mode == 'local'
-        uses: docker/setup-buildx-action@v3
+      # A debug build: quicker to compile, and behaves the same as a release build.
       - if: matrix.mode == 'local'
-        uses: docker/build-push-action@v6
+        uses: dtolnay/rust-toolchain@stable
+      - if: matrix.mode == 'local'
+        uses: Swatinem/rust-cache@v2
         with:
-          context: .
-          load: true
-          tags: ${{ env.SERVER_IMAGE }}
-          cache-from: type=gha
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build the server from this commit
+        if: matrix.mode == 'local'
+        run: cargo build --locked
 
       - name: Create a throwaway Nx workspace
         run: |
@@ -89,7 +90,7 @@ jobs:
           echo "NXWS=$ws" >> "$GITHUB_ENV"
 
       - name: Configure the remote cache (action under test)
-        uses: graycoreio/github-actions/nx-remote-cache@main
+        uses: graycoreio/nx-remote-cache-action@test/ts-action
         with:
           mode: ${{ matrix.mode }}
           tenant-id: ${{ vars.NX_CACHE_E2E_TENANT_ID }}
@@ -99,7 +100,7 @@ jobs:
           api-scope: ${{ vars.NX_CACHE_E2E_API_SCOPE }}
           storage-account: ${{ vars.NX_CACHE_E2E_STORAGE_ACCOUNT }}
           storage-container: ${{ vars.NX_CACHE_E2E_STORAGE_CONTAINER }}
-          image: ${{ env.SERVER_IMAGE }}
+          server-binary: ${{ env.SERVER_BIN }}
 
       - name: Expected access
         run: |
@@ -185,12 +186,13 @@ jobs:
           STORAGE_ACCOUNT: ${{ vars.NX_CACHE_E2E_STORAGE_ACCOUNT }}
           STORAGE_CONTAINER: ${{ vars.NX_CACHE_E2E_STORAGE_CONTAINER }}
         run: |
-          dir="$RUNNER_TEMP/boundary"; mkdir -p "$dir"; chmod 755 "$dir"
+          dir="$RUNNER_TEMP/boundary"; mkdir -p "$dir"
           curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -er .value > "$dir/token"
-          chmod 644 "$dir/token"
           token=$(openssl rand -hex 32)
-          config="[storage]
+          config="[server]
+          listen = \"127.0.0.1:3999\"
+          [storage]
           type = \"azure\"
           account = \"$STORAGE_ACCOUNT\"
           container = \"$STORAGE_CONTAINER\"
@@ -198,17 +200,20 @@ jobs:
           [[auth.providers]]
           type = \"static\"
           tokens = [{ name = \"boundary\", sha256 = \"$(printf '%s' "$token" | sha256sum | cut -d' ' -f1)\", scope = \"read_write\" }]"
-          docker run -d --name boundary -p 127.0.0.1:3999:3000 \
-            -e NX_CACHE_CONFIG_TOML="$config" \
-            -e AZURE_FEDERATED_TOKEN_FILE=/var/run/secrets/github/token \
-            -v "$dir/token:/var/run/secrets/github/token:ro" \
-            "$SERVER_IMAGE" > /dev/null
-          for _ in $(seq 1 60); do curl -fsS -o /dev/null http://127.0.0.1:3999/ready 2>/dev/null && break; sleep 1; done
+          # In its own directory, so no config.toml from the checkout is picked up.
+          (cd "$dir" && NX_CACHE_CONFIG_TOML="$config" AZURE_FEDERATED_TOKEN_FILE="$dir/token" \
+            exec "$SERVER_BIN" serve > "$dir/server.log" 2>&1) &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 60); do
+            curl -fsS -o /dev/null http://127.0.0.1:3999/ready 2>/dev/null && break
+            kill -0 "$pid" 2>/dev/null || { echo "::error::the server exited at startup"; cat "$dir/server.log"; exit 1; }
+            sleep 1
+          done
 
           hash="e2eboundary${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
           put=$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H "Authorization: Bearer $token" --data probe "http://127.0.0.1:3999/v1/cache/$hash")
           get=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "http://127.0.0.1:3999/v1/cache/$hash")
-          docker logs boundary > "$dir/server.log" 2>&1
           # 403 (not 500), so Nx would skip the upload rather than fail the run.
           [ "$put" = 403 ] || { echo "::error::PUT with the reader identity: expected storage to refuse the write (403), got $put"; cat "$dir/server.log"; exit 1; }
           [ "$get" = 404 ] || { echo "::error::expected nothing stored, got $get"; exit 1; }
