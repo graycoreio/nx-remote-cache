@@ -33,15 +33,15 @@ Every [release](https://github.com/graycoreio/nx-remote-cache/releases) after v0
   - `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` (glibc 2.34+: Ubuntu 22.04, Debian 12, RHEL 9 or newer),
   - `universal-apple-darwin` (one binary for Apple Silicon and Intel Macs).
 
-  Archives named `nx-remote-cache-mint-…` are built with `--features mint`. Each release has a `SHA256SUMS` file, and every archive has a GitHub build-provenance attestation.
+  Archives named `nx-remote-cache-mint-…` are built with `--features mint`. Each release has a `SHA256SUMS` file.
 - **Images:** `ghcr.io/graycoreio/nx-remote-cache:<version>` (and `:<version>-mint`) for `linux/amd64` and `linux/arm64`. The image contains the same binary as the Linux archives.
 
 ```sh
 version=<version>
 target=universal-apple-darwin    # or x86_64-unknown-linux-gnu / aarch64-unknown-linux-gnu
 archive="nx-remote-cache-$version-$target.tar.gz"
-gh release download "v$version" --repo graycoreio/nx-remote-cache --pattern "$archive"
-gh attestation verify "$archive" --repo graycoreio/nx-remote-cache   # built by this repo's release workflow
+gh release download "v$version" --repo graycoreio/nx-remote-cache --pattern "$archive" --pattern SHA256SUMS
+grep " $archive\$" SHA256SUMS | shasum -a 256 -c -
 tar -xzf "$archive" nx-remote-cache && sudo install nx-remote-cache /usr/local/bin/
 ```
 
