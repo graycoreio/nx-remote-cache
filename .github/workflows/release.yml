@@ -10,6 +10,8 @@ on:
     paths:
       - .github/workflows/release.yml
       - Dockerfile
+      - scripts/build-release.sh
+      - scripts/archive-release.sh
       - scripts/smoke-test-binary.sh
   workflow_dispatch:
 
