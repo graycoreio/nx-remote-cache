@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push to a pull request supersedes its running checks. Runs on main and on tags are
+# never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
