@@ -1,45 +1,185 @@
 name: Release
 
+# A `v*` tag publishes binaries (GitHub release assets) and multi-arch images (GHCR).
+# Pull requests touching the release build, and manual runs, build and smoke test everything
+# without publishing.
 on:
   push:
     tags: ['v*']
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - Dockerfile
+      - scripts/smoke-test-binary.sh
+  workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  image:
-    runs-on: ubuntu-latest
+  # Built in the Dockerfile's build stage (Debian 12), so the binaries need glibc 2.34+ and match
+  # the image's runtime.
+  linux:
+    runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
-        include:
-          - features: ''
-            suffix: ''
-          - features: mint
-            suffix: '-mint'
+        platform:
+          - { arch: amd64, target: x86_64-unknown-linux-gnu, runner: ubuntu-latest }
+          - { arch: arm64, target: aarch64-unknown-linux-gnu, runner: ubuntu-24.04-arm }
+        variant:
+          - { name: default, features: '', suffix: '' }
+          - { name: mint, features: mint, suffix: '-mint' }
     steps:
-      - uses: actions/checkout@v5
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: binary
+          outputs: type=local,dest=out
+          build-args: FEATURES=${{ matrix.variant.features }}
+          cache-from: type=gha,scope=binary-${{ matrix.platform.arch }}${{ matrix.variant.suffix }}
+          cache-to: type=gha,mode=max,scope=binary-${{ matrix.platform.arch }}${{ matrix.variant.suffix }}
+      - run: scripts/smoke-test-binary.sh out/${{ matrix.platform.arch }}/nx-remote-cache
+      - id: archive
+        run: |
+          version=$([ "$GITHUB_REF_TYPE" = tag ] && echo "${GITHUB_REF_NAME#v}" || echo dev)
+          name="nx-remote-cache${{ matrix.variant.suffix }}-$version-${{ matrix.platform.target }}.tar.gz"
+          cp LICENSE out/${{ matrix.platform.arch }}/
+          tar -czf "$name" -C out/${{ matrix.platform.arch }} nx-remote-cache LICENSE
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: binary-${{ matrix.variant.name }}-${{ matrix.platform.target }}
+          path: ${{ steps.archive.outputs.name }}
+          if-no-files-found: error
+
+  # One universal binary (Apple Silicon + Intel).
+  darwin:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        variant:
+          - { name: default, features: '', suffix: '' }
+          - { name: mint, features: mint, suffix: '-mint' }
+    steps:
+      - uses: actions/checkout@v7
+      # Keep in step with the Dockerfile's rust image.
+      - uses: dtolnay/rust-toolchain@1.99
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.variant.name }}
+      - name: Build
+        env:
+          FEATURES: ${{ matrix.variant.features }}
+        run: |
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --locked --target "$target" ${FEATURES:+--features "$FEATURES"}
+          done
+          mkdir out
+          lipo -create -output out/nx-remote-cache \
+            target/aarch64-apple-darwin/release/nx-remote-cache \
+            target/x86_64-apple-darwin/release/nx-remote-cache
+          lipo -info out/nx-remote-cache
+      - name: Smoke test
+        run: |
+          scripts/smoke-test-binary.sh out/nx-remote-cache
+          # The Intel slice, under Rosetta.
+          arch -x86_64 out/nx-remote-cache hash-token smoke >/dev/null
+      - id: archive
+        run: |
+          version=$([ "$GITHUB_REF_TYPE" = tag ] && echo "${GITHUB_REF_NAME#v}" || echo dev)
+          name="nx-remote-cache${{ matrix.variant.suffix }}-$version-universal-apple-darwin.tar.gz"
+          cp LICENSE out/
+          tar -czf "$name" -C out nx-remote-cache LICENSE
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: binary-${{ matrix.variant.name }}-universal-apple-darwin
+          path: ${{ steps.archive.outputs.name }}
+          if-no-files-found: error
+
+  # The image packages the Linux release binaries rather than compiling again; no RUN steps, so
+  # the arm64 image needs no emulation.
+  image:
+    needs: linux
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        variant:
+          - { name: default, features: '', suffix: '' }
+          - { name: mint, features: mint, suffix: '-mint' }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: binary-${{ matrix.variant.name }}-*-linux-gnu
+          path: ${{ runner.temp }}/archives
+          merge-multiple: true
+      - name: Unpack per architecture
+        run: |
+          prebuilt="$RUNNER_TEMP/prebuilt"
+          mkdir -p "$prebuilt/amd64" "$prebuilt/arm64"
+          tar -xzf "$RUNNER_TEMP"/archives/*-x86_64-unknown-linux-gnu.tar.gz -C "$prebuilt/amd64"
+          tar -xzf "$RUNNER_TEMP"/archives/*-aarch64-unknown-linux-gnu.tar.gz -C "$prebuilt/arm64"
+          ls -lR "$prebuilt"
+      - uses: docker/setup-buildx-action@v4
+      - if: github.ref_type == 'tag'
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
-          flavor: suffix=${{ matrix.suffix }},onlatest=true
+          flavor: suffix=${{ matrix.variant.suffix }},onlatest=true
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
-          push: true
-          build-args: FEATURES=${{ matrix.features }}
+          build-contexts: binary=${{ runner.temp }}/prebuilt
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.ref_type == 'tag' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.suffix }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [linux, darwin]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: binary-*
+          path: dist
+          merge-multiple: true
+      - run: cd dist && sha256sum *.tar.gz | tee SHA256SUMS
+      # Verify with: gh attestation verify <archive> --repo graycoreio/nx-remote-cache
+      - uses: actions/attest@v4
+        with:
+          subject-path: dist/*.tar.gz
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS --clobber
