@@ -1,12 +1,15 @@
 //! `GET`/`PUT /v1/cache/{hash}`, per the Nx remote cache OpenAPI spec.
 
+use std::sync::Arc;
+
 use axum::{
-    body::Body,
+    body::{Body, BodyDataStream},
     extract::{Path, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use futures::TryStreamExt;
+use futures::{StreamExt, stream};
+use tokio::sync::Mutex;
 
 use super::{AppState, authenticate};
 use crate::{
@@ -53,10 +56,6 @@ pub async fn put(
     body: Body,
 ) -> Result<StatusCode, ApiError> {
     let principal = authenticate(&state, &headers).await?;
-    if !principal.scope.allows(Scope::ReadWrite) {
-        // Nx treats 403 on PUT as "not allowed to store" and silently skips the upload.
-        return Err(ApiError::Forbidden("this token is read-only".into()));
-    }
     let key = parse_key(&hash)?;
     let len: u64 = headers
         .get(header::CONTENT_LENGTH)
@@ -69,12 +68,26 @@ pub async fn put(
         return Err(ApiError::PayloadTooLarge(state.max_artifact_bytes));
     }
 
-    let stream = Box::pin(body.into_data_stream().map_err(std::io::Error::other));
-    match state
+    // From here on every answer waits for the whole body (at most max_artifact_bytes, checked
+    // above): hyper closes the connection on a body left unread, and Nx, which sends the whole
+    // body before reading the response, then fails the task on the broken pipe instead of
+    // seeing the status. A 403 it would skip quietly becomes a failed run.
+    let body = Arc::new(Mutex::new(body.into_data_stream()));
+    if !principal.scope.allows(Scope::ReadWrite) {
+        drain(&body).await;
+        // Nx treats 403 on PUT as "not allowed to store" and silently skips the upload.
+        return Err(ApiError::Forbidden("this token is read-only".into()));
+    }
+
+    let result = state
         .store
-        .put_if_absent(&key, len, stream, &principal.meta)
-        .await
-    {
+        .put_if_absent(&key, len, shared(body.clone()), &principal.meta)
+        .await;
+    // The store may stop reading early (e.g. storage refusing the first block).
+    if !matches!(result, Err(StoreError::Body(_))) {
+        drain(&body).await;
+    }
+    match result {
         Ok(PutOutcome::Created) => {
             tracing::info!(hash, len, writer = %principal.subject, provider = principal.provider, "stored artifact");
             Ok(StatusCode::OK)
@@ -94,4 +107,18 @@ pub async fn put(
             Err(ApiError::Internal)
         }
     }
+}
+
+/// The upload body as a store stream that leaves the rest of the body readable for `drain`.
+fn shared(body: Arc<Mutex<BodyDataStream>>) -> crate::store::ByteStream {
+    Box::pin(stream::unfold(body, |body| async move {
+        let chunk = body.lock().await.next().await?;
+        Some((chunk.map_err(std::io::Error::other), body))
+    }))
+}
+
+/// Reads and discards what is left of the upload body.
+async fn drain(body: &Mutex<BodyDataStream>) {
+    let mut body = body.lock().await;
+    while let Some(Ok(_)) = body.next().await {}
 }
