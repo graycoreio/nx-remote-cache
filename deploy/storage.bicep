@@ -18,6 +18,10 @@ param sku string = 'Standard_LRS'
 
 param containerName string
 
+@description('''Create the container. If false, an existing container with this name is used, e.g. one that
+belongs to another deployment: a deployment stack then doesn't manage (or delete) it.''')
+param createContainer bool = true
+
 @description('Identities to grant access to the container: `contributor` (read and write) or `reader`.')
 param access blobAccess[]
 
@@ -68,7 +72,7 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01'
   name: 'default'
 }
 
-resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+resource createdContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (createContainer) {
   parent: blobService
   name: containerName
   dependsOn: [created]
@@ -77,10 +81,17 @@ resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@20
   }
 }
 
+// Refers to the container whether it was created above or already existed.
+resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' existing = {
+  parent: blobService
+  name: containerName
+}
+
 resource blobAccessAssignments 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
   for grant in access: {
     scope: container
     name: guid(container.id, grant.principalId, roleIds[grant.role])
+    dependsOn: [createdContainer]
     properties: {
       roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleIds[grant.role])
       principalId: grant.principalId

@@ -226,11 +226,12 @@ az stack group create -n <stack name> -g <resource group> -f deploy/local.bicep 
 ```
 
 - **Redeploy with the same stack name** to change the parameters. The stack deletes whatever the template no longer declares.
-- **That includes a storage account the stack created:** switching `createStorageAccount` off, or deleting the stack, deletes it and the cache with it. An existing account (`createStorageAccount = false`) is never managed by the stack, so it stays.
+- **That includes storage the stack created:** the stack owns a storage account it created and, unless `createContainer = false`, the container. Switching either off, renaming the container or deleting the stack deletes them, and the cache with them. An existing account (`createStorageAccount = false`) or container (`createContainer = false`) is only referred to, never managed.
+- **To hand over something the stack already owns**, e.g. a container that turns out to be shared, redeploy once with `createContainer = false` and `--action-on-unmanage detachAll`. The stack then stops managing it without deleting it. Later deployments can go back to `deleteResources`.
 
 Its outputs (`tenantId`, `storageAccount`, `storageContainer`, `writerClientId`, `readerClientId`) are the inputs of the action's `mode: local`. The same subject rules apply; see [Building the subjects](#building-the-subjects).
 
-A hosted and a local deployment can share a storage container, but **each needs its own identities** (a different `namePrefix`). Each one deletes what isn't in its own parameters, so a shared identity would lose the other deployment's subjects.
+A hosted and a local deployment can share a storage container: give the local one `createContainer = false`, so its stack never owns (or deletes) the hosted deployment's container. But **each needs its own identities** (a different `namePrefix`). Each one deletes what isn't in its own parameters, so a shared identity would lose the other deployment's subjects.
 
 ### Revoking access
 

@@ -32,8 +32,13 @@ param createStorageAccount bool = false
 @description('Resource group of the storage account. Defaults to the deployment resource group.')
 param storageResourceGroup string = resourceGroup().name
 
-@description('Blob container for cache entries. Created if missing.')
+@description('Blob container for cache entries.')
 param containerName string = 'nx-cache-v1'
+
+@description('''Create the container. Set to false to use a container another deployment owns (e.g. a
+hosted deployment's): as a stack, this deployment would otherwise manage it, and deleting the
+stack would delete the container and the cache in it.''')
+param createContainer bool = true
 
 @description('Cache entries are deleted this many days after creation.')
 param retentionDays int = 30
@@ -75,6 +80,7 @@ module storage 'storage.bicep' = {
     createAccount: createStorageAccount
     location: location
     containerName: containerName
+    createContainer: createContainer
     access: concat(
       [
         { principalId: identities.outputs.writerPrincipalId, role: 'contributor' }
