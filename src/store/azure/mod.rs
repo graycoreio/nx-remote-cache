@@ -24,9 +24,7 @@ use url::Url;
 use credential::ResolvedAuth;
 pub use credential::StorageAuth;
 
-use super::{
-    Artifact, ByteStream, CacheKey, CacheStore, PutOutcome, StoreError, WriteMeta, exact_length,
-};
+use super::{Artifact, ByteStream, CacheKey, CacheStore, PutOutcome, StoreError, exact_length};
 
 /// Blob used only to probe access; it never needs to exist.
 const READY_PROBE_BLOB: &str = "ready-probe";
@@ -231,10 +229,10 @@ impl CacheStore for AzureBlobStore {
         key: &CacheKey,
         len: u64,
         body: ByteStream,
-        meta: &WriteMeta,
+        writer: &str,
     ) -> Result<PutOutcome, StoreError> {
         let name = self.blob_name(key.as_str());
-        let metadata = to_blob_metadata(meta);
+        let metadata = writer_metadata(writer);
         let mut body = exact_length(body, len);
 
         let result = if len <= self.block_size.get() as u64 {
@@ -342,25 +340,14 @@ fn total_from_content_range(value: &str) -> Option<u64> {
     value.rsplit_once('/')?.1.trim().parse().ok()
 }
 
-/// Blob metadata names must be C# identifiers and values must be ASCII header values.
-fn to_blob_metadata(meta: &WriteMeta) -> HashMap<String, String> {
-    meta.iter()
-        .map(|(k, v)| {
-            let mut name: String = k
-                .chars()
-                .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-                .collect();
-            if !name.starts_with(|c: char| c.is_ascii_alphabetic()) {
-                name.insert(0, 'm');
-            }
-            let value: String = v
-                .chars()
-                .filter(|c| c.is_ascii_graphic() || *c == ' ')
-                .take(256)
-                .collect();
-            (name, value)
-        })
-        .collect()
+/// The `token` metadata on every blob: who wrote it. Values must be ASCII header values.
+fn writer_metadata(writer: &str) -> HashMap<String, String> {
+    let value: String = writer
+        .chars()
+        .filter(|c| c.is_ascii_graphic() || *c == ' ')
+        .take(256)
+        .collect();
+    HashMap::from([("token".to_owned(), value)])
 }
 
 #[cfg(test)]
@@ -452,15 +439,8 @@ mod tests {
     }
 
     #[test]
-    fn metadata_is_sanitized() {
-        let meta = WriteMeta::from([
-            ("provider".into(), "static".into()),
-            ("run-id".into(), "123".into()),
-            ("1st".into(), "naïve\nvalue".into()),
-        ]);
-        let out = to_blob_metadata(&meta);
-        assert_eq!(out["provider"], "static");
-        assert_eq!(out["run_id"], "123");
-        assert_eq!(out["m1st"], "navevalue");
+    fn writer_metadata_is_sanitized() {
+        assert_eq!(writer_metadata("ci-job")["token"], "ci-job");
+        assert_eq!(writer_metadata("dev-naïve\nname")["token"], "dev-navename");
     }
 }

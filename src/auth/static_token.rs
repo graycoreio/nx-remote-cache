@@ -65,10 +65,8 @@ impl Authenticator for StaticTokens {
             }
         }
         Ok(matched.map(|entry| Principal {
-            provider: "static",
-            subject: entry.name.clone(),
+            name: entry.name.clone(),
             scope: entry.scope,
-            meta: [("token".to_owned(), entry.name.clone())].into(),
         }))
     }
 }
@@ -90,7 +88,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!((p.subject.as_str(), p.scope), ("dev", Scope::Read));
+        assert_eq!((p.name.as_str(), p.scope), ("dev", Scope::Read));
         assert!(
             tokens
                 .authenticate(&Presented::Bearer("nope"))

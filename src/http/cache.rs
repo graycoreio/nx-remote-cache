@@ -81,7 +81,7 @@ pub async fn put(
 
     let result = state
         .store
-        .put_if_absent(&key, len, shared(body.clone()), &principal.meta)
+        .put_if_absent(&key, len, shared(body.clone()), &principal.name)
         .await;
     // The store may stop reading early (e.g. storage refusing the first block).
     if !matches!(result, Err(StoreError::Body(_))) {
@@ -89,7 +89,7 @@ pub async fn put(
     }
     match result {
         Ok(PutOutcome::Created) => {
-            tracing::info!(hash, len, writer = %principal.subject, provider = principal.provider, "stored artifact");
+            tracing::info!(hash, len, writer = %principal.name, "stored artifact");
             Ok(StatusCode::OK)
         }
         Ok(PutOutcome::AlreadyExists) => Err(ApiError::Conflict),

@@ -39,7 +39,6 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/v1/cache/{hash}", get(cache::get).put(cache::put))
         .route("/health", get(health::health))
-        .route("/ready", get(health::ready))
         .layer(TraceLayer::new_for_http())
         .layer(CatchPanicLayer::new())
         .with_state(state)

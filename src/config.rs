@@ -53,8 +53,10 @@ impl Default for ServerConfig {
     }
 }
 
+/// Loopback: the server serves the machine it runs on. Containers set `0.0.0.0:3000` (the image
+/// does, through `NX_CACHE__SERVER__LISTEN`) and publish the port on the host's loopback.
 fn default_listen() -> SocketAddr {
-    ([0, 0, 0, 0], 3000).into()
+    ([127, 0, 0, 1], 3000).into()
 }
 
 fn default_max_artifact_bytes() -> u64 {
@@ -120,13 +122,18 @@ impl Config {
             return Err("auth.providers is empty: every request would be rejected".into());
         }
         let mut providers: Vec<Arc<dyn Authenticator>> = Vec::new();
+        let mut token_count = 0;
         for provider in &self.auth.providers {
             match provider {
                 ProviderConfig::Static { tokens } => {
                     tracing::info!(count = tokens.len(), "auth provider: static tokens");
+                    token_count += tokens.len();
                     providers.push(Arc::new(StaticTokens::new(tokens.clone())?));
                 }
             }
+        }
+        if token_count == 0 {
+            return Err("no static tokens configured: every request would be rejected".into());
         }
         Ok(AuthChain::new(providers))
     }
@@ -171,6 +178,26 @@ mod tests {
         };
         assert_eq!(azure.prefix, "v1");
         assert_eq!(config.auth.providers.len(), 1);
+    }
+
+    #[test]
+    fn rejects_auth_without_tokens() {
+        for toml in [
+            "[storage]\ntype = \"memory\"\n[auth]\nproviders = []",
+            "[storage]\ntype = \"memory\"\n[[auth.providers]]\ntype = \"static\"\ntokens = []",
+        ] {
+            let err = parse(toml).unwrap().build_auth().err().expect(toml);
+            assert!(err.contains("every request would be rejected"), "{err}");
+        }
+    }
+
+    #[test]
+    fn listens_on_loopback_by_default() {
+        let config = parse("[storage]\ntype = \"memory\"\n[auth]\nproviders = []").unwrap();
+        assert_eq!(
+            config.server.listen,
+            SocketAddr::from(([127, 0, 0, 1], 3000))
+        );
     }
 
     #[test]

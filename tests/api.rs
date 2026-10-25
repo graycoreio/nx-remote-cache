@@ -160,7 +160,7 @@ async fn read_only_token_gets_403_on_put() {
     assert_text_plain(&res);
     assert!(
         h.store
-            .meta(&CacheKey::parse("123").unwrap())
+            .writer(&CacheKey::parse("123").unwrap())
             .await
             .is_none()
     );
@@ -251,10 +251,11 @@ async fn concurrent_puts_have_exactly_one_winner() {
 }
 
 #[tokio::test]
-async fn health_and_ready() {
+async fn health_and_no_ready_endpoint() {
     let h = harness().await;
     assert_eq!(h.get("/health", None).await.status(), StatusCode::OK);
-    assert_eq!(h.get("/ready", None).await.status(), StatusCode::OK);
+    // Storage is checked once, before the server listens; there is no separate readiness probe.
+    assert_eq!(h.get("/ready", None).await.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -264,6 +265,11 @@ async fn writes_record_the_token_name_as_provenance() {
         h.put("/v1/cache/9", Some(WRITE_TOKEN), b"x").await.status(),
         StatusCode::OK
     );
-    let meta = h.store.meta(&CacheKey::parse("9").unwrap()).await.unwrap();
-    assert_eq!(meta.get("token").map(String::as_str), Some("ci"));
+    assert_eq!(
+        h.store
+            .writer(&CacheKey::parse("9").unwrap())
+            .await
+            .as_deref(),
+        Some("ci")
+    );
 }

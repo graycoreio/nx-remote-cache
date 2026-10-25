@@ -7,7 +7,7 @@
 
 pub mod static_token;
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -27,11 +27,9 @@ impl Scope {
 
 #[derive(Clone, Debug)]
 pub struct Principal {
-    pub provider: &'static str,
-    pub subject: String,
+    /// The token's configured name; recorded on everything it writes.
+    pub name: String,
     pub scope: Scope,
-    /// Recorded as provenance on anything this principal writes.
-    pub meta: BTreeMap<String, String>,
 }
 
 #[derive(Debug, thiserror::Error)]

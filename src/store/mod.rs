@@ -5,7 +5,6 @@ pub mod azure;
 pub mod memory;
 
 use std::{
-    collections::BTreeMap,
     io,
     pin::Pin,
     task::{Context, Poll},
@@ -16,9 +15,6 @@ use bytes::Bytes;
 use futures::{Stream, stream::BoxStream};
 
 pub type ByteStream = BoxStream<'static, Result<Bytes, io::Error>>;
-
-/// Provenance recorded alongside each artifact (e.g. who wrote it, from which CI run).
-pub type WriteMeta = BTreeMap<String, String>;
 
 /// A validated Nx task hash. Restricting the alphabet means a key can never be used to
 /// address anything outside the cache prefix.
@@ -78,11 +74,12 @@ pub trait CacheStore: Send + Sync + 'static {
         key: &CacheKey,
         len: u64,
         body: ByteStream,
-        meta: &WriteMeta,
+        // Who wrote it (the token's name), recorded with the artifact.
+        writer: &str,
     ) -> Result<PutOutcome, StoreError>;
 
-    /// Cheap check that the backend is reachable and we are authorized. Used at startup and by
-    /// the readiness probe.
+    /// Cheap check that the backend is reachable and we are authorized. Run once at startup,
+    /// before the server listens.
     async fn ready(&self) -> Result<(), StoreError>;
 }
 

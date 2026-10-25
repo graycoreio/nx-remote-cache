@@ -23,8 +23,6 @@ pub enum ApiError {
     PayloadTooLarge(u64),
     #[error("internal server error")]
     Internal,
-    #[error("{0}")]
-    Unavailable(String),
 }
 
 impl ApiError {
@@ -38,7 +36,6 @@ impl ApiError {
             Self::LengthRequired => StatusCode::LENGTH_REQUIRED,
             Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 }

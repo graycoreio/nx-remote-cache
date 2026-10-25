@@ -74,7 +74,7 @@ The identity's role on the container (Storage Blob Data Reader or Contributor) d
 - **Uploads stream.** Large uploads are staged in 8 MiB blocks and committed with `If-None-Match: *`. Each upload uses about 30 MB; each download about 90 MB, regardless of artifact size.
 - **Provenance is recorded.** Every blob carries the name of the static token that wrote it (`ci-job` for the action, `dev-<username>` for the dev compose setup).
 - **Startup fails fast.** The server checks storage access at startup and exits with an explanation (missing container, missing role assignment, expired SAS, …) instead of serving cache misses.
-- `/health` is liveness (no dependencies); `/ready` re-checks storage.
+- **`/health` answers once the server is usable.** The storage check happens before it starts listening, and it exits instead if storage fails, so there's no separate readiness probe.
 
 ## Configuration
 
@@ -82,7 +82,7 @@ The server reads one TOML document, assembled from up to three sources (later on
 
 1. **A file:** `config.toml` in the working directory, or `--config <path>`. The default file is optional when another source supplies the config; a path given with `--config` must exist.
 2. **Inline TOML** in the `NX_CACHE_CONFIG_TOML` environment variable. Handy where mounting a file is awkward; this is how the action passes its config.
-3. **Per-key overrides** `NX_CACHE__<SECTION>__<KEY>`, e.g. `NX_CACHE__SERVER__LISTEN=0.0.0.0:8080` or `NX_CACHE__STORAGE__CONTAINER=nx-cache-v2`. These work for single values. Lists such as `[[auth.providers]]` can only be set in the file or the inline TOML.
+3. **Per-key overrides** `NX_CACHE__<SECTION>__<KEY>`, e.g. `NX_CACHE__SERVER__LISTEN=127.0.0.1:8080` or `NX_CACHE__STORAGE__CONTAINER=nx-cache-v2`. These work for single values. Lists such as `[[auth.providers]]` can only be set in the file or the inline TOML.
 
 Config never contains secrets: SAS tokens and client secrets are read from environment variables that the config *names*. Static tokens are stored as SHA-256 hashes.
 
@@ -110,7 +110,7 @@ Unknown keys are rejected at startup, so a typo fails loudly rather than being i
 
 | Key | Default | |
 |---|---|---|
-| `listen` | `0.0.0.0:3000` | Address and port |
+| `listen` | `127.0.0.1:3000` | Address and port. The image sets `0.0.0.0:3000` (through `NX_CACHE__SERVER__LISTEN`), so publish it on the host's loopback: `-p 127.0.0.1:3000:3000` |
 | `max_artifact_bytes` | `2147483648` (2 GiB) | Larger uploads get `413` |
 | `json_logs` | `false` | JSON log lines, for log aggregation |
 
@@ -302,7 +302,7 @@ The `access` input picks between the two identities (`auto`: writer only for a p
 src/
   auth/        Authenticator trait + AuthChain; static_token
   store/       CacheStore trait (get / put_if_absent / ready); memory, azure/
-  http/        axum routes: /v1/cache/{hash}, /health, /ready
+  http/        axum routes: /v1/cache/{hash}, /health
   config.rs    TOML + env config
 spec/          Nx OpenAPI spec (tests/spec.rs fails if it changes without the server following)
 deploy/        Bicep for Azure

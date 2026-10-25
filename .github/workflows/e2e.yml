@@ -181,7 +181,7 @@ jobs:
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true' EXIT
           for _ in $(seq 1 60); do
-            curl -fsS -o /dev/null http://127.0.0.1:3999/ready 2>/dev/null && break
+            curl -fsS -o /dev/null http://127.0.0.1:3999/health 2>/dev/null && break
             kill -0 "$pid" 2>/dev/null || { echo "::error::the server exited at startup"; cat "$dir/server.log"; exit 1; }
             sleep 1
           done

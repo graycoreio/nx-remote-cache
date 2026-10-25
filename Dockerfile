@@ -28,6 +28,9 @@ ARG TARGETARCH
 COPY --from=binary /${TARGETARCH}/nx-remote-cache /usr/local/bin/nx-remote-cache
 # Mount a config.toml here, or pass the whole config in NX_CACHE_CONFIG_TOML.
 WORKDIR /etc/nx-remote-cache
+# The native default is loopback; in a container the port has to be reachable from outside it.
+# Publish it on the host's loopback (`-p 127.0.0.1:3000:3000`).
+ENV NX_CACHE__SERVER__LISTEN=0.0.0.0:3000
 EXPOSE 3000
 ENTRYPOINT ["/usr/local/bin/nx-remote-cache"]
 CMD ["serve"]

@@ -13,7 +13,7 @@ services:
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite
     command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --skipApiVersionCheck --loose
-    ports: ["10000:10000"]
+    ports: ["127.0.0.1:10000:10000"]
 
   create-container:
     image: curlimages/curl
@@ -38,7 +38,7 @@ services:
     depends_on:
       create-container:
         condition: service_completed_successfully
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:3000:3000"]
     volumes:
       - ./config/local.toml:/etc/nx-remote-cache/config.toml:ro
     environment:

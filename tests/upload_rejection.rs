@@ -14,8 +14,7 @@ use nx_remote_cache::{
     },
     http::{AppState, app},
     store::{
-        Artifact, ByteStream, CacheKey, CacheStore, PutOutcome, StoreError, WriteMeta,
-        memory::MemoryStore,
+        Artifact, ByteStream, CacheKey, CacheStore, PutOutcome, StoreError, memory::MemoryStore,
     },
 };
 use tokio::{
@@ -42,7 +41,7 @@ impl CacheStore for DenyingStore {
         _: &CacheKey,
         _: u64,
         mut body: ByteStream,
-        _: &WriteMeta,
+        _: &str,
     ) -> Result<PutOutcome, StoreError> {
         body.next().await;
         Err(StoreError::WriteDenied(

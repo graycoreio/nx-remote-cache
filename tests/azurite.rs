@@ -9,7 +9,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use futures::{StreamExt, TryStreamExt, stream};
 use nx_remote_cache::store::{
-    ByteStream, CacheKey, CacheStore, PutOutcome, StoreError, WriteMeta,
+    ByteStream, CacheKey, CacheStore, PutOutcome, StoreError,
     azure::{AzureBlobStore, AzureConfig},
 };
 use serde_json::json;
@@ -68,10 +68,6 @@ async fn read_all(store: &AzureBlobStore, key: &CacheKey) -> Option<(u64, Vec<u8
     Some((artifact.len, chunks.concat()))
 }
 
-fn meta() -> WriteMeta {
-    WriteMeta::from([("provider".into(), "test".into())])
-}
-
 #[tokio::test]
 async fn ready_succeeds_with_valid_sas() {
     let store = require_azurite!(store(1024 * 1024));
@@ -103,7 +99,7 @@ async fn small_roundtrip_and_conflict() {
 
     let data = payload(1000);
     let outcome = store
-        .put_if_absent(&key, data.len() as u64, chunked(&data), &meta())
+        .put_if_absent(&key, data.len() as u64, chunked(&data), "test")
         .await
         .unwrap();
     assert_eq!(outcome, PutOutcome::Created);
@@ -111,7 +107,7 @@ async fn small_roundtrip_and_conflict() {
 
     let other = payload(10);
     let outcome = store
-        .put_if_absent(&key, 10, chunked(&other), &meta())
+        .put_if_absent(&key, 10, chunked(&other), "test")
         .await
         .unwrap();
     assert_eq!(outcome, PutOutcome::AlreadyExists);
@@ -125,7 +121,7 @@ async fn large_upload_is_staged_in_blocks_and_downloads_intact() {
     let key = CacheKey::parse("large").unwrap();
     let data = payload(10 * 1024 * 1024 + 512 * 1024);
     let outcome = store
-        .put_if_absent(&key, data.len() as u64, chunked(&data), &meta())
+        .put_if_absent(&key, data.len() as u64, chunked(&data), "test")
         .await
         .unwrap();
     assert_eq!(outcome, PutOutcome::Created);
@@ -135,7 +131,7 @@ async fn large_upload_is_staged_in_blocks_and_downloads_intact() {
     assert!(read == data, "downloaded bytes differ");
 
     let again = store
-        .put_if_absent(&key, data.len() as u64, chunked(&data), &meta())
+        .put_if_absent(&key, data.len() as u64, chunked(&data), "test")
         .await
         .unwrap();
     assert_eq!(again, PutOutcome::AlreadyExists);
@@ -152,7 +148,7 @@ async fn concurrent_large_puts_have_exactly_one_winner() {
                 let mut data = payload(2 * 1024 * 1024);
                 data[0] = i;
                 store
-                    .put_if_absent(&key, data.len() as u64, chunked(&data), &meta())
+                    .put_if_absent(&key, data.len() as u64, chunked(&data), "test")
                     .await
                     .unwrap()
             })
@@ -189,7 +185,7 @@ async fn short_body_creates_nothing() {
         let key = CacheKey::parse(name).unwrap();
         let data = payload(len);
         let result = store
-            .put_if_absent(&key, declared, chunked(&data), &meta())
+            .put_if_absent(&key, declared, chunked(&data), "test")
             .await;
         assert!(
             matches!(result, Err(StoreError::Body(_))),
@@ -225,7 +221,7 @@ async fn read_only_credential_is_reported_as_write_denied() {
     for len in [100, 3 * 1024 * 1024] {
         let data = payload(len);
         let result = store
-            .put_if_absent(&key, len as u64, chunked(&data), &meta())
+            .put_if_absent(&key, len as u64, chunked(&data), "test")
             .await;
         assert!(
             matches!(result, Err(StoreError::WriteDenied(_))),
