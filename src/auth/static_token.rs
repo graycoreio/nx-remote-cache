@@ -53,7 +53,7 @@ impl Authenticator for StaticTokens {
         &self,
         presented: &Presented<'_>,
     ) -> Result<Option<Principal>, AuthError> {
-        let Presented::Opaque(token) = presented else {
+        let Presented::Bearer(token) = presented else {
             return Ok(None);
         };
         let digest = Sha256::digest(token.as_bytes());
@@ -86,14 +86,14 @@ mod tests {
         }])
         .unwrap();
         let p = tokens
-            .authenticate(&Presented::Opaque("s3cret"))
+            .authenticate(&Presented::Bearer("s3cret"))
             .await
             .unwrap()
             .unwrap();
         assert_eq!((p.subject.as_str(), p.scope), ("dev", Scope::Read));
         assert!(
             tokens
-                .authenticate(&Presented::Opaque("nope"))
+                .authenticate(&Presented::Bearer("nope"))
                 .await
                 .unwrap()
                 .is_none()

@@ -74,8 +74,6 @@ async fn serve(store: Arc<dyn CacheStore>) -> std::net::SocketAddr {
         store,
         auth,
         max_artifact_bytes: 2 * BODY as u64,
-        #[cfg(feature = "mint")]
-        minter: None,
     };
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

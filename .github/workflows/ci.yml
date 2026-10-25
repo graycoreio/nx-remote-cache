@@ -28,7 +28,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo clippy --all-targets --features mint -- -D warnings
 
   test:
     runs-on: ubuntu-latest
@@ -40,7 +39,7 @@ jobs:
         run: |
           docker run -d --name azurite -p 10000:10000 mcr.microsoft.com/azure-storage/azurite \
             azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --skipApiVersionCheck --loose
-      # Runs unit, API, spec, mint and Azurite-backed store tests.
+      # Runs unit, API, spec and Azurite-backed store tests.
       - run: scripts/azurite-test.sh
 
   msrv:
@@ -49,7 +48,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.89
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check --locked --all-targets --features mint
+      - run: cargo check --locked --all-targets
 
   # The release build of the default variant, exactly as the release workflow runs it: on main
   # it saves the cache that release builds (and later PRs) start from.
@@ -92,9 +91,12 @@ jobs:
       - name: Smoke test the image
         run: |
           docker run -d --name cache -p 3000:3000 \
-            -e NX_CACHE_CONFIG_TOML="$(printf '[storage]\ntype = "memory"\n[[auth.providers]]\ntype = "anonymous"\nscope = "read"\n')" \
+            -e NX_CACHE_CONFIG_TOML="$(printf '[storage]\ntype = "memory"\n[[auth.providers]]\ntype = "static"\ntokens = [{ name = "smoke", sha256 = "04d588cb41b8022d1233924f0fe8280d9e2bb92cdc81658eb102ef9c42fc9452", scope = "read" }]\n')" \
             nx-remote-cache:ci
           for _ in $(seq 1 20); do curl -sf localhost:3000/health && break; sleep 1; done
-          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:3000/v1/cache/123)" = 404
-          test "$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H 'Content-Length: 1' --data x localhost:3000/v1/cache/123)" = 403
+          status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          test "$(status localhost:3000/v1/cache/123)" = 401
+          # The read-only token "smoke".
+          test "$(status -H 'Authorization: Bearer smoke' localhost:3000/v1/cache/123)" = 404
+          test "$(status -H 'Authorization: Bearer smoke' -X PUT -H 'Content-Length: 1' --data x localhost:3000/v1/cache/123)" = 403
           docker logs cache

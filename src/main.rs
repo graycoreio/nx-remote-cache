@@ -68,14 +68,10 @@ async fn run(config: Config) -> Result<(), String> {
         .ready()
         .await
         .map_err(|e| format!("storage is not usable: {e}"))?;
-    let auth = config.build_auth().await?;
-
     let state = AppState {
         store,
-        auth: auth.chain,
+        auth: config.build_auth()?,
         max_artifact_bytes: config.server.max_artifact_bytes,
-        #[cfg(feature = "mint")]
-        minter: auth.minter,
     };
     let listener = tokio::net::TcpListener::bind(config.server.listen)
         .await

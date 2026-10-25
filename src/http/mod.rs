@@ -1,7 +1,5 @@
 mod cache;
 mod health;
-#[cfg(feature = "mint")]
-mod token;
 
 use std::sync::Arc;
 
@@ -28,8 +26,6 @@ pub struct AppState {
     pub store: Arc<dyn CacheStore>,
     pub auth: AuthChain,
     pub max_artifact_bytes: u64,
-    #[cfg(feature = "mint")]
-    pub minter: Option<Arc<crate::auth::mint::Minter>>,
 }
 
 pub type App = MapRequest<Router, fn(Request) -> Request>;
@@ -40,13 +36,10 @@ pub fn app(state: AppState) -> App {
 }
 
 pub fn router(state: AppState) -> Router {
-    let router = Router::new()
+    Router::new()
         .route("/v1/cache/{hash}", get(cache::get).put(cache::put))
         .route("/health", get(health::health))
-        .route("/ready", get(health::ready));
-    #[cfg(feature = "mint")]
-    let router = router.route("/v1/token/github", axum::routing::post(token::github));
-    router
+        .route("/ready", get(health::ready))
         .layer(TraceLayer::new_for_http())
         .layer(CatchPanicLayer::new())
         .with_state(state)
@@ -106,13 +99,7 @@ pub(crate) async fn authenticate(
     // happen when CI's cache credentials are wrong or stale.
     state.auth.authenticate(token).await.map_err(|e| {
         tracing::info!(error = %e, "authentication failed");
-        match e {
-            AuthError::NoAccess => {
-                ApiError::Unauthorized("token grants no access to this cache".into())
-            }
-            AuthError::Invalid(_) => {
-                ApiError::Unauthorized("missing or invalid authentication token".into())
-            }
-        }
+        let AuthError::Invalid(_) = e;
+        ApiError::Unauthorized("missing or invalid authentication token".into())
     })
 }

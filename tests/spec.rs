@@ -116,8 +116,6 @@ async fn every_documented_operation_is_routed() {
         store: Arc::new(MemoryStore::new()),
         auth: AuthChain::new(providers),
         max_artifact_bytes: 1024,
-        #[cfg(feature = "mint")]
-        minter: None,
     });
     let spec = spec();
     for (path, ops) in spec["paths"].as_object().unwrap() {

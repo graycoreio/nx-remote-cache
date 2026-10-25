@@ -454,12 +454,12 @@ mod tests {
     #[test]
     fn metadata_is_sanitized() {
         let meta = WriteMeta::from([
-            ("provider".into(), "entra".into()),
+            ("provider".into(), "static".into()),
             ("run-id".into(), "123".into()),
             ("1st".into(), "naïve\nvalue".into()),
         ]);
         let out = to_blob_metadata(&meta);
-        assert_eq!(out["provider"], "entra");
+        assert_eq!(out["provider"], "static");
         assert_eq!(out["run_id"], "123");
         assert_eq!(out["m1st"], "navevalue");
     }

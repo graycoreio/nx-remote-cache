@@ -1,7 +1,6 @@
 // Storage for nx-remote-cache: a new or existing account, the cache container, data-plane role
 // assignments on that container only, and an optional lifecycle (expiry) rule.
-// Deployed as a module (by hosted.bicep and local.bicep), so the account may live in another
-// resource group.
+// Deployed as a module by local.bicep, so the account may live in another resource group.
 
 @description('Storage account name (3-24 lowercase letters and digits, globally unique if created).')
 @minLength(3)
@@ -18,8 +17,17 @@ param sku string = 'Standard_LRS'
 
 param containerName string
 
+@description('''Create the container. If false, an existing container with this name is used, e.g. one that
+belongs to another deployment: a deployment stack then doesn't manage (or delete) it.''')
+param createContainer bool = true
+
 @description('Identities to grant access to the container: `contributor` (read and write) or `reader`.')
 param access blobAccess[]
+
+@description('''Entra groups that may create user-delegation SAS tokens (scripts/dev-sas.sh) for the
+container. Delegation keys can only be granted at account scope; a SAS signed with one never
+allows more than the signer's own role on the container.''')
+param delegatorGroupObjectIds array = []
 
 param manageLifecyclePolicy bool
 param retentionDays int
@@ -63,7 +71,7 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01'
   name: 'default'
 }
 
-resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+resource createdContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (createContainer) {
   parent: blobService
   name: containerName
   dependsOn: [created]
@@ -72,14 +80,36 @@ resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@20
   }
 }
 
+// Refers to the container whether it was created above or already existed.
+resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' existing = {
+  parent: blobService
+  name: containerName
+}
+
 resource blobAccessAssignments 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
   for grant in access: {
     scope: container
     name: guid(container.id, grant.principalId, roleIds[grant.role])
+    dependsOn: [createdContainer]
     properties: {
       roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleIds[grant.role])
       principalId: grant.principalId
       principalType: grant.?principalType ?? 'ServicePrincipal'
+    }
+  }
+]
+
+var delegatorRoleId = 'db58b8e5-c6ad-4a2a-8342-4190687cbf4a' // Storage Blob Delegator
+
+resource delegatorAssignments 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
+  for groupId in delegatorGroupObjectIds: {
+    scope: account
+    name: guid(account.id, groupId, delegatorRoleId)
+    dependsOn: [created]
+    properties: {
+      roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', delegatorRoleId)
+      principalId: groupId
+      principalType: 'Group'
     }
   }
 ]

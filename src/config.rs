@@ -12,9 +12,7 @@ use serde::Deserialize;
 
 use crate::{
     auth::{
-        AuthChain, Authenticator, Scope,
-        anonymous::Anonymous,
-        entra::{EntraAuthenticator, EntraConfig},
+        AuthChain, Authenticator,
         static_token::{StaticTokenEntry, StaticTokens},
     },
     store::{
@@ -80,15 +78,7 @@ pub struct AuthConfig {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProviderConfig {
-    Entra(EntraConfig),
-    Static {
-        tokens: Vec<StaticTokenEntry>,
-    },
-    Anonymous {
-        scope: Scope,
-    },
-    #[cfg(feature = "mint")]
-    GithubMint(crate::auth::mint::MintConfig),
+    Static { tokens: Vec<StaticTokenEntry> },
 }
 
 impl Config {
@@ -125,57 +115,21 @@ impl Config {
         })
     }
 
-    pub async fn build_auth(&self) -> Result<Built, String> {
+    pub fn build_auth(&self) -> Result<AuthChain, String> {
         if self.auth.providers.is_empty() {
             return Err("auth.providers is empty: every request would be rejected".into());
         }
         let mut providers: Vec<Arc<dyn Authenticator>> = Vec::new();
-        #[cfg(feature = "mint")]
-        let mut minter = None;
         for provider in &self.auth.providers {
             match provider {
-                ProviderConfig::Entra(config) => {
-                    tracing::info!(issuer = config.issuer(), "auth provider: entra");
-                    providers.push(Arc::new(
-                        EntraAuthenticator::discover(config.clone()).await?,
-                    ));
-                }
                 ProviderConfig::Static { tokens } => {
                     tracing::info!(count = tokens.len(), "auth provider: static tokens");
                     providers.push(Arc::new(StaticTokens::new(tokens.clone())?));
                 }
-                ProviderConfig::Anonymous { scope } => {
-                    if *scope != Scope::Read {
-                        return Err("anonymous access can only be granted `read` scope".into());
-                    }
-                    tracing::info!("auth provider: anonymous read");
-                    providers.push(Arc::new(Anonymous { scope: *scope }));
-                }
-                #[cfg(feature = "mint")]
-                ProviderConfig::GithubMint(config) => {
-                    if minter.is_some() {
-                        return Err("only one github_mint provider may be configured".into());
-                    }
-                    let built =
-                        Arc::new(crate::auth::mint::Minter::discover(config.clone()).await?);
-                    tracing::info!("auth provider: github_mint");
-                    providers.push(built.clone());
-                    minter = Some(built);
-                }
             }
         }
-        Ok(Built {
-            chain: AuthChain::new(providers),
-            #[cfg(feature = "mint")]
-            minter,
-        })
+        Ok(AuthChain::new(providers))
     }
-}
-
-pub struct Built {
-    pub chain: AuthChain,
-    #[cfg(feature = "mint")]
-    pub minter: Option<Arc<crate::auth::mint::Minter>>,
 }
 
 pub const DEFAULT_CONFIG_PATH: &str = "config.toml";
@@ -203,20 +157,11 @@ mod tests {
             type = "azure"
             account = "daffodilnx"
             container = "nx-cache-v1"
-            auth = { mode = "managed_identity" }
-
-            [[auth.providers]]
-            type = "entra"
-            tenant_id = "5e3d1041-a3d4-4599-a4e0-6b35da52825a"
-            audiences = ["00000000-0000-0000-0000-000000000001"]
+            auth = { mode = "workload_identity", tenant_id = "t", client_id = "c" }
 
             [[auth.providers]]
             type = "static"
-            tokens = [{ name = "dev", sha256 = "00", scope = "read" }]
-
-            [[auth.providers]]
-            type = "anonymous"
-            scope = "read"
+            tokens = [{ name = "ci-job", sha256 = "00", scope = "read_write" }]
             "#,
         )
         .unwrap();
@@ -225,36 +170,16 @@ mod tests {
             panic!()
         };
         assert_eq!(azure.prefix, "v1");
-        assert_eq!(config.auth.providers.len(), 3);
+        assert_eq!(config.auth.providers.len(), 1);
     }
 
     #[test]
-    fn parses_bicep_generated_config() {
-        // Mirrors `configLines` in deploy/main.bicep, with every optional provider enabled.
-        let config = parse(
-            r#"[server]
-listen = "0.0.0.0:3000"
-json_logs = true
-[storage]
-type = "azure"
-account = "daffodilnx"
-container = "nx-cache-v1"
-auth = { mode = "managed_identity", client_id = "00000000-0000-0000-0000-000000000002" }
-[[auth.providers]]
-type = "entra"
-tenant_id = "00000000-0000-0000-0000-000000000003"
-audiences = ["00000000-0000-0000-0000-000000000004"]
-[[auth.providers]]
-type = "static"
-tokens = [{ name = "dev-readonly", sha256 = "00", scope = "read" }]
-[[auth.providers]]
-type = "anonymous"
-scope = "read"
-"#,
-        )
-        .unwrap();
-        assert!(config.server.json_logs);
-        assert_eq!(config.auth.providers.len(), 3);
+    fn rejects_removed_providers() {
+        for provider in ["entra", "anonymous", "github_mint"] {
+            let toml =
+                format!("[storage]\ntype = \"memory\"\n[[auth.providers]]\ntype = \"{provider}\"");
+            assert!(parse(&toml).is_err(), "{provider}");
+        }
     }
 
     #[test]
@@ -276,23 +201,15 @@ scope = "read"
         let cases = [
             (
                 "memory storage",
-                "[storage]\ntype = \"memory\"\nprefx = \"x\"\n[[auth.providers]]\ntype = \"anonymous\"\nscope = \"read\"",
+                "[storage]\ntype = \"memory\"\nprefx = \"x\"\n[[auth.providers]]\ntype = \"static\"\ntokens = []",
             ),
             (
                 "static provider",
                 "[storage]\ntype = \"memory\"\n[[auth.providers]]\ntype = \"static\"\ntokens = []\nscopee = \"read\"",
             ),
             (
-                "anonymous provider",
-                "[storage]\ntype = \"memory\"\n[[auth.providers]]\ntype = \"anonymous\"\nscope = \"read\"\nscopee = \"x\"",
-            ),
-            (
-                "entra provider",
-                "[storage]\ntype = \"memory\"\n[[auth.providers]]\ntype = \"entra\"\ntenant_id = \"t\"\naudiences = [\"a\"]\nwrite_rol = \"x\"",
-            ),
-            (
                 "azure storage",
-                "[storage]\ntype = \"azure\"\naccount = \"x\"\ncontainer = \"c\"\nprefx = \"y\"\nauth = { mode = \"developer_tools\" }\n[[auth.providers]]\ntype = \"anonymous\"\nscope = \"read\"",
+                "[storage]\ntype = \"azure\"\naccount = \"x\"\ncontainer = \"c\"\nprefx = \"y\"\nauth = { mode = \"developer_tools\" }\n[[auth.providers]]\ntype = \"static\"\ntokens = []",
             ),
         ];
         for (name, toml) in cases {

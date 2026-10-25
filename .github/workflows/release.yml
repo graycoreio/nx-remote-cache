@@ -46,24 +46,15 @@ jobs:
           # A cache saved by a tag run is only visible to that tag.
           save-if: ${{ github.ref_type != 'tag' }}
       - run: scripts/build-release.sh out ${{ matrix.target }}
-      - name: Smoke test
-        run: |
-          scripts/smoke-test-binary.sh out/default/nx-remote-cache
-          scripts/smoke-test-binary.sh out/mint/nx-remote-cache
-      - name: Archive
-        run: scripts/archive-release.sh out ${{ matrix.target }}
+      - run: scripts/smoke-test-binary.sh out/nx-remote-cache
+      - run: scripts/archive-release.sh out ${{ matrix.target }}
       - uses: actions/upload-artifact@v7
         with:
-          name: binary-default-${{ matrix.target }}
-          path: dist/default/*.tar.gz
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          name: binary-mint-${{ matrix.target }}
-          path: dist/mint/*.tar.gz
+          name: binary-${{ matrix.target }}
+          path: dist/*.tar.gz
           if-no-files-found: error
 
-  # One universal binary (Apple Silicon + Intel) per variant.
+  # One universal binary (Apple Silicon + Intel).
   darwin:
     runs-on: macos-latest
     steps:
@@ -78,22 +69,14 @@ jobs:
       - run: scripts/build-release.sh out aarch64-apple-darwin x86_64-apple-darwin
       - name: Smoke test
         run: |
-          for variant in default mint; do
-            scripts/smoke-test-binary.sh out/$variant/nx-remote-cache
-            # The Intel slice, under Rosetta.
-            arch -x86_64 out/$variant/nx-remote-cache hash-token smoke >/dev/null
-          done
-      - name: Archive
-        run: scripts/archive-release.sh out universal-apple-darwin
+          scripts/smoke-test-binary.sh out/nx-remote-cache
+          # The Intel slice, under Rosetta.
+          arch -x86_64 out/nx-remote-cache hash-token smoke >/dev/null
+      - run: scripts/archive-release.sh out universal-apple-darwin
       - uses: actions/upload-artifact@v7
         with:
-          name: binary-default-universal-apple-darwin
-          path: dist/default/*.tar.gz
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          name: binary-mint-universal-apple-darwin
-          path: dist/mint/*.tar.gz
+          name: binary-universal-apple-darwin
+          path: dist/*.tar.gz
           if-no-files-found: error
 
   # The image packages the Linux release binaries rather than compiling again; no RUN steps, so
@@ -104,16 +87,11 @@ jobs:
     permissions:
       contents: read
       packages: write
-    strategy:
-      matrix:
-        variant:
-          - { name: default, suffix: '' }
-          - { name: mint, suffix: '-mint' }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
-          pattern: binary-${{ matrix.variant.name }}-*-linux-gnu
+          pattern: binary-*-linux-gnu
           path: ${{ runner.temp }}/archives
           merge-multiple: true
       - name: Unpack per architecture
@@ -134,7 +112,6 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
-          flavor: suffix=${{ matrix.variant.suffix }},onlatest=true
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

@@ -1,7 +1,6 @@
 # syntax=docker/dockerfile:1
 #
 # docker build -t nx-remote-cache .
-# docker build --build-arg FEATURES=mint -t nx-remote-cache:mint .
 
 FROM rust:1.99-bookworm AS build
 # aws-lc-sys (rustls' crypto provider) builds C code.
@@ -10,10 +9,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY . .
-ARG FEATURES=""
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cargo build --release --locked ${FEATURES:+--features "$FEATURES"} \
+    cargo build --release --locked \
     && cp target/release/nx-remote-cache /nx-remote-cache
 
 # Just the binary, under its architecture:
