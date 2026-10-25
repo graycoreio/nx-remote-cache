@@ -21,6 +21,11 @@ param containerName string
 @description('Identities to grant access to the container: `contributor` (read and write) or `reader`.')
 param access blobAccess[]
 
+@description('''Entra groups that may create user-delegation SAS tokens (scripts/dev-sas.sh) for the
+container. Delegation keys can only be granted at account scope; a SAS signed with one never
+allows more than the signer's own role on the container.''')
+param delegatorGroupObjectIds array = []
+
 param manageLifecyclePolicy bool
 param retentionDays int
 param ruleName string
@@ -80,6 +85,21 @@ resource blobAccessAssignments 'Microsoft.Authorization/roleAssignments@2022-04-
       roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleIds[grant.role])
       principalId: grant.principalId
       principalType: grant.?principalType ?? 'ServicePrincipal'
+    }
+  }
+]
+
+var delegatorRoleId = 'db58b8e5-c6ad-4a2a-8342-4190687cbf4a' // Storage Blob Delegator
+
+resource delegatorAssignments 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
+  for groupId in delegatorGroupObjectIds: {
+    scope: account
+    name: guid(account.id, groupId, delegatorRoleId)
+    dependsOn: [created]
+    properties: {
+      roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', delegatorRoleId)
+      principalId: groupId
+      principalType: 'Group'
     }
   }
 ]

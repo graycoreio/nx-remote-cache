@@ -1,6 +1,9 @@
 // nx-remote-cache on Azure Container Apps, with Entra ID as the client token issuer.
 //
 //   az deployment group create -g <rg> -f deploy/hosted.bicep -p deploy/hosted.example.bicepparam
+//   scripts/reconcile-hosted-access.sh <rg>   # revokes subjects and groups no longer listed
+//
+// (Not a deployment stack: stacks don't support the Microsoft Graph resources below.)
 //
 // Storage can be a new account (createStorageAccount = true) or an existing one, in this
 // resource group or another (storageResourceGroup).

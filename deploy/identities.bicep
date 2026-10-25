@@ -14,6 +14,12 @@ param readerSubjects array
 
 var githubIssuer = 'https://token.actions.githubusercontent.com'
 
+// Named after the subject, not its position in the list: removing or reordering subjects then
+// leaves the other credentials alone. (Positional names retargeted them, and the duplicate
+// subject that left behind failed the deployment.) Removing a subject from the list does not
+// delete its credential by itself; see the README's "Revoking access".
+func credentialName(subject string) string => 'github-${uniqueString(subject)}'
+
 resource writer 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: '${namePrefix}-ci-writer'
   location: location
@@ -27,9 +33,9 @@ resource reader 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = 
 // Federated credentials on one identity must be created one at a time (409 otherwise).
 @batchSize(1)
 resource writerCredentials 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = [
-  for (subject, i) in writerSubjects: {
+  for subject in writerSubjects: {
     parent: writer
-    name: 'github-${i}'
+    name: credentialName(subject)
     properties: {
       issuer: githubIssuer
       subject: subject
@@ -40,9 +46,9 @@ resource writerCredentials 'Microsoft.ManagedIdentity/userAssignedIdentities/fed
 
 @batchSize(1)
 resource readerCredentials 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = [
-  for (subject, i) in readerSubjects: {
+  for subject in readerSubjects: {
     parent: reader
-    name: 'github-${i}'
+    name: credentialName(subject)
     properties: {
       issuer: githubIssuer
       subject: subject

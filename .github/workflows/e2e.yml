@@ -13,7 +13,10 @@
 # from the deployment outputs. The job is skipped while they are unset:
 #   NX_CACHE_E2E_URL, NX_CACHE_E2E_API_SCOPE                       (hosted.bicep)
 #   NX_CACHE_E2E_STORAGE_ACCOUNT, NX_CACHE_E2E_STORAGE_CONTAINER   (local.bicep)
-#   NX_CACHE_E2E_TENANT_ID, NX_CACHE_E2E_WRITER_CLIENT_ID, NX_CACHE_E2E_READER_CLIENT_ID (both)
+#   NX_CACHE_E2E_WRITER_CLIENT_ID, NX_CACHE_E2E_READER_CLIENT_ID                (hosted.bicep's identities)
+#   NX_CACHE_E2E_LOCAL_WRITER_CLIENT_ID, NX_CACHE_E2E_LOCAL_READER_CLIENT_ID    (local.bicep's identities)
+#   NX_CACHE_E2E_TENANT_ID                                                      (both)
+# Each deployment has its own identities: each one revokes what isn't in its own parameters.
 #
 # The "shared entry" check on PRs reads an entry written by a main run, so main must have run
 # this workflow at least once against the deployment.
@@ -94,8 +97,8 @@ jobs:
         with:
           mode: ${{ matrix.mode }}
           tenant-id: ${{ vars.NX_CACHE_E2E_TENANT_ID }}
-          writer-client-id: ${{ vars.NX_CACHE_E2E_WRITER_CLIENT_ID }}
-          reader-client-id: ${{ vars.NX_CACHE_E2E_READER_CLIENT_ID }}
+          writer-client-id: ${{ matrix.mode == 'local' && vars.NX_CACHE_E2E_LOCAL_WRITER_CLIENT_ID || vars.NX_CACHE_E2E_WRITER_CLIENT_ID }}
+          reader-client-id: ${{ matrix.mode == 'local' && vars.NX_CACHE_E2E_LOCAL_READER_CLIENT_ID || vars.NX_CACHE_E2E_READER_CLIENT_ID }}
           server-url: ${{ vars.NX_CACHE_E2E_URL }}
           api-scope: ${{ vars.NX_CACHE_E2E_API_SCOPE }}
           storage-account: ${{ vars.NX_CACHE_E2E_STORAGE_ACCOUNT }}
@@ -182,7 +185,7 @@ jobs:
         if: matrix.mode == 'local' && env.WANT == 'Cache.Read'
         env:
           TENANT_ID: ${{ vars.NX_CACHE_E2E_TENANT_ID }}
-          READER_CLIENT_ID: ${{ vars.NX_CACHE_E2E_READER_CLIENT_ID }}
+          READER_CLIENT_ID: ${{ vars.NX_CACHE_E2E_LOCAL_READER_CLIENT_ID }}
           STORAGE_ACCOUNT: ${{ vars.NX_CACHE_E2E_STORAGE_ACCOUNT }}
           STORAGE_CONTAINER: ${{ vars.NX_CACHE_E2E_STORAGE_CONTAINER }}
         run: |

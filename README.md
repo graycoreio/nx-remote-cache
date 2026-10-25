@@ -70,7 +70,7 @@ The macOS binary isn't notarised. Downloaded with `gh` or `curl` it runs as is; 
 |---|---|
 | Azure Container Apps / App Service / VM | `managed_identity` (optional `client_id` for a user-assigned identity) |
 | The binary or `cargo run` on a dev machine | `developer_tools`: your `az login` |
-| Docker on a dev machine | `sas`: [`scripts/dev-sas.sh`](scripts/dev-sas.sh) prints a short-lived user-delegation SAS |
+| Docker on a dev machine | `managed_identity` through the `az` sidecar ([Local instance](#local-instance-binary-or-docker)), or `sas`: [`scripts/dev-sas.sh`](scripts/dev-sas.sh) prints a short-lived user-delegation SAS (needs Storage Blob Delegator on the account, which `local.bicep` grants its developer groups) |
 | Elsewhere | `client_secret` (a service principal) or `workload_identity` |
 | Azurite | `sas` with `endpoint = "http://…:10000/devstoreaccount1"` |
 
@@ -200,6 +200,7 @@ The hosted server is the stronger setup. The in-job server avoids hosting anythi
 
 ```sh
 az deployment group create -g <resource group> -f deploy/hosted.bicep -p deploy/hosted.example.bicepparam
+scripts/reconcile-hosted-access.sh <resource group>   # after removing subjects or groups; see Revoking access
 ```
 
 Read the parameter descriptions before deploying, in particular:
@@ -216,12 +217,29 @@ Read the parameter descriptions before deploying, in particular:
 
 [`deploy/local.bicep`](deploy/local.bicep) is for server instances that run next to whoever uses them: inside a CI job (the action's `mode: local`) or on a developer's machine. It creates only the storage (new or existing account, as above) and the two CI identities. The writer gets **Storage Blob Data Contributor** on the container and the reader **Storage Blob Data Reader**:
 
+Deploy it as a **deployment stack**, so that removing a subject or group from the parameters also deletes its credential or role assignment:
+
 ```sh
-az deployment group create -g <resource group> -f deploy/local.bicep \
-  -p storageAccountName=<account> writerSubjects='["<subject>"]' readerSubjects='["<subject>"]'
+az stack group create -n <stack name> -g <resource group> -f deploy/local.bicep \
+  -p storageAccountName=<account> writerSubjects='["<subject>"]' readerSubjects='["<subject>"]' \
+  --action-on-unmanage deleteResources --deny-settings-mode none --yes
 ```
 
-Its outputs (`tenantId`, `storageAccount`, `storageContainer`, `writerClientId`, `readerClientId`) are the inputs of the action's `mode: local`. The same subject rules apply; see [Building the subjects](#building-the-subjects). Both templates can share one set of identities and one container, as the test deployment does.
+- **Redeploy with the same stack name** to change the parameters. The stack deletes whatever the template no longer declares.
+- **That includes a storage account the stack created:** switching `createStorageAccount` off, or deleting the stack, deletes it and the cache with it. An existing account (`createStorageAccount = false`) is never managed by the stack, so it stays.
+
+Its outputs (`tenantId`, `storageAccount`, `storageContainer`, `writerClientId`, `readerClientId`) are the inputs of the action's `mode: local`. The same subject rules apply; see [Building the subjects](#building-the-subjects).
+
+A hosted and a local deployment can share a storage container, but **each needs its own identities** (a different `namePrefix`). Each one deletes what isn't in its own parameters, so a shared identity would lose the other deployment's subjects.
+
+### Revoking access
+
+Removing a subject from `writerSubjects` / `readerSubjects`, or a group from `readerGroupObjectIds` / `writerGroupObjectIds`, only takes effect once the matching credential or grant is deleted. Azure deployments add and update, but never delete what a template stops declaring.
+
+- **`local.bicep`:** deployed as a stack (above), the redeployment deletes them.
+- **`hosted.bicep`:** stacks don't support its Microsoft Graph resources (the app registration). After the deployment, run [`scripts/reconcile-hosted-access.sh`](scripts/reconcile-hosted-access.sh) `<resource group>`. It reads the last deployment's parameters, lists the federated credentials and group app-role grants they no longer contain, and deletes them with `--apply`. Grants to anything other than groups, e.g. added by hand, are left alone.
+
+**Deployments made before credentials were named after their subjects** have credentials named `github-0`, `github-1`, …. Redeploying them fails, because the renamed credentials repeat the same subjects. Delete the old ones first (`az identity federated-credential delete -g <rg> --identity-name <prefix>-ci-<writer|reader> -n github-<n> --yes`), or deploy with a new `namePrefix`.
 
 ### Anonymous read
 
@@ -295,6 +313,8 @@ Anyone in neither group gets `AADSTS50105`, because the app requires role assign
 A developer runs the server on their own machine, talking to the shared storage as themselves. What they can do is their own role on the container, enforced by Azure Storage:
 - **Storage Blob Data Contributor:** read and write.
 - **Storage Blob Data Reader:** read only, with the same setup: storage refuses their uploads, the server answers `403`, and Nx skips them.
+
+`local.bicep` also gives these groups **Storage Blob Delegator** on the account. It only lets them sign user-delegation SAS tokens (`scripts/dev-sas.sh`), and a SAS never allows more than the signer's own role on the container.
 
 This works alongside either deployment, as long as the developer has a storage role:
 - **`local.bicep`** grants it through its `readerGroupObjectIds` / `writerGroupObjectIds`.
