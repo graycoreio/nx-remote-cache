@@ -78,7 +78,7 @@ The identity's role on the container (Storage Blob Data Reader or Contributor) d
 
 ## Configuration
 
-The server reads one TOML document, assembled from up to three sources (later ones win):
+The server reads one TOML document, assembled from up to three sources (later ones win, and all of them win over the `NX_CACHE_DEFAULT_LISTEN` default):
 
 1. **A file:** `config.toml` in the working directory, or `--config <path>`. The default file is optional when another source supplies the config; a path given with `--config` must exist.
 2. **Inline TOML** in the `NX_CACHE_CONFIG_TOML` environment variable. Handy where mounting a file is awkward; this is how the action passes its config.
@@ -110,7 +110,7 @@ Unknown keys are rejected at startup, so a typo fails loudly rather than being i
 
 | Key | Default | |
 |---|---|---|
-| `listen` | `127.0.0.1:3000` | Address and port. The image sets `0.0.0.0:3000` (through `NX_CACHE__SERVER__LISTEN`), so publish it on the host's loopback: `-p 127.0.0.1:3000:3000` |
+| `listen` | `127.0.0.1:3000` | Address and port. `NX_CACHE_DEFAULT_LISTEN` replaces this default without overriding an explicit `listen`; the image sets it to `0.0.0.0:3000`, so publish the port on the host's loopback: `-p 127.0.0.1:3000:3000` |
 | `max_artifact_bytes` | `2147483648` (2 GiB) | Larger uploads get `413` |
 | `json_logs` | `false` | JSON log lines, for log aggregation |
 

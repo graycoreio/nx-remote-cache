@@ -6,7 +6,7 @@ use std::{net::SocketAddr, path::Path, sync::Arc};
 
 use figment::{
     Figment,
-    providers::{Env, Format, Toml},
+    providers::{Env, Format, Serialized, Toml},
 };
 use serde::Deserialize;
 
@@ -53,8 +53,8 @@ impl Default for ServerConfig {
     }
 }
 
-/// Loopback: the server serves the machine it runs on. Containers set `0.0.0.0:3000` (the image
-/// does, through `NX_CACHE__SERVER__LISTEN`) and publish the port on the host's loopback.
+/// Loopback: the server serves the machine it runs on. Containers listen on `0.0.0.0:3000` (the
+/// image sets `NX_CACHE_DEFAULT_LISTEN`) and publish the port on the host's loopback.
 fn default_listen() -> SocketAddr {
     ([127, 0, 0, 1], 3000).into()
 }
@@ -88,13 +88,35 @@ impl Config {
     /// default path), inline TOML in `NX_CACHE_CONFIG_TOML` (convenient for containers, where
     /// mounting a file is awkward), then `NX_CACHE__*` overrides.
     pub fn load(path: &Path) -> Result<Self, String> {
+        Self::load_from(
+            path,
+            std::env::var(INLINE_CONFIG_ENV).ok(),
+            std::env::var(DEFAULT_LISTEN_ENV).ok(),
+        )
+    }
+
+    /// [`Config::load`] with the environment variables it reads passed in. `default_listen`
+    /// (`NX_CACHE_DEFAULT_LISTEN`) is the lowest-priority source: it only replaces the built-in
+    /// loopback default, so the image can listen on all interfaces while an explicit `listen`
+    /// in any other source still wins.
+    pub fn load_from(
+        path: &Path,
+        inline: Option<String>,
+        default_listen: Option<String>,
+    ) -> Result<Self, String> {
         let mut figment = Figment::new();
+        if let Some(listen) = default_listen {
+            let listen: SocketAddr = listen
+                .parse()
+                .map_err(|e| format!("{DEFAULT_LISTEN_ENV}={listen:?} is not an address: {e}"))?;
+            figment = figment.merge(Serialized::default("server.listen", listen));
+        }
         if path.exists() {
             figment = figment.merge(Toml::file(path));
         } else if path != Path::new(DEFAULT_CONFIG_PATH) {
             return Err(format!("config file {} does not exist", path.display()));
         }
-        if let Ok(inline) = std::env::var(INLINE_CONFIG_ENV) {
+        if let Some(inline) = inline {
             figment = figment.merge(Toml::string(&inline));
         }
         figment
@@ -141,6 +163,7 @@ impl Config {
 
 pub const DEFAULT_CONFIG_PATH: &str = "config.toml";
 pub const INLINE_CONFIG_ENV: &str = "NX_CACHE_CONFIG_TOML";
+pub const DEFAULT_LISTEN_ENV: &str = "NX_CACHE_DEFAULT_LISTEN";
 
 #[cfg(test)]
 mod tests {
@@ -189,6 +212,36 @@ mod tests {
             let err = parse(toml).unwrap().build_auth().err().expect(toml);
             assert!(err.contains("every request would be rejected"), "{err}");
         }
+    }
+
+    #[test]
+    fn default_listen_is_overridden_by_an_explicit_listen() {
+        let base = "[storage]\ntype = \"memory\"\n[auth]\nproviders = []\n";
+        let load = |inline: &str, default: Option<&str>| {
+            Config::load_from(
+                Path::new(DEFAULT_CONFIG_PATH),
+                Some(format!("{base}{inline}")),
+                default.map(str::to_owned),
+            )
+            .map(|c| c.server.listen.to_string())
+        };
+        // The image's default applies only where nothing sets `listen`...
+        assert_eq!(load("", Some("0.0.0.0:3000")).unwrap(), "0.0.0.0:3000");
+        // ...and an explicit one, e.g. for a custom port mapping, wins.
+        assert_eq!(
+            load(
+                "[server]\nlisten = \"0.0.0.0:8080\"\n",
+                Some("0.0.0.0:3000")
+            )
+            .unwrap(),
+            "0.0.0.0:8080"
+        );
+        assert_eq!(load("", None).unwrap(), "127.0.0.1:3000");
+        assert!(
+            load("", Some("everywhere"))
+                .unwrap_err()
+                .contains("NX_CACHE_DEFAULT_LISTEN")
+        );
     }
 
     #[test]
