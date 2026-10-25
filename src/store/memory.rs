@@ -7,7 +7,7 @@ use bytes::Bytes;
 use futures::{StreamExt, TryStreamExt, stream};
 use tokio::sync::RwLock;
 
-use super::{Artifact, ByteStream, CacheKey, CacheStore, PutOutcome, StoreError, exact_length};
+use super::{Artifact, CacheKey, CacheStore, PutOutcome, StoreError, UploadStream, exact_length};
 
 #[derive(Default)]
 pub struct MemoryStore {
@@ -43,18 +43,20 @@ impl CacheStore for MemoryStore {
         &self,
         key: &CacheKey,
         len: u64,
-        body: ByteStream,
+        body: UploadStream<'_>,
         writer: &str,
     ) -> Result<PutOutcome, StoreError> {
-        // Buffer before taking the lock so a slow client can't block other requests.
+        // Read and assemble before taking the lock, so neither a slow client nor the copy blocks
+        // other requests.
         let chunks: Vec<Bytes> = exact_length(body, len)
             .try_collect()
             .await
             .map_err(StoreError::Body)?;
+        let data = Bytes::from(chunks.concat());
         match self.entries.write().await.entry(key.clone()) {
             Entry::Occupied(_) => Ok(PutOutcome::AlreadyExists),
             Entry::Vacant(slot) => {
-                slot.insert((Bytes::from(chunks.concat()), writer.to_owned()));
+                slot.insert((data, writer.to_owned()));
                 Ok(PutOutcome::Created)
             }
         }

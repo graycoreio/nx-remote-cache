@@ -24,7 +24,7 @@ use url::Url;
 use credential::ResolvedAuth;
 pub use credential::StorageAuth;
 
-use super::{Artifact, ByteStream, CacheKey, CacheStore, PutOutcome, StoreError, exact_length};
+use super::{Artifact, CacheKey, CacheStore, PutOutcome, StoreError, UploadStream, exact_length};
 
 /// Blob used only to probe access; it never needs to exist.
 const READY_PROBE_BLOB: &str = "ready-probe";
@@ -126,7 +126,7 @@ impl AzureBlobStore {
         name: &str,
         data: Bytes,
         metadata: HashMap<String, String>,
-    ) -> azure_core::Result<()> {
+    ) -> Result<(), UploadError> {
         let options = BlockBlobClientUploadOptions {
             metadata: Some(metadata),
             // Make sure the SDK sends this as one Put Blob rather than re-chunking it.
@@ -137,24 +137,24 @@ impl AzureBlobStore {
         self.container
             .blob_client(name)
             .upload(data.into(), Some(options))
-            .await
-            .map(drop)
+            .await?;
+        Ok(())
     }
 
     async fn upload_blocks(
         &self,
         name: &str,
         first: Bytes,
-        mut rest: ByteStream,
+        mut rest: UploadStream<'_>,
         metadata: HashMap<String, String>,
-    ) -> Result<azure_core::Result<()>, StoreError> {
+    ) -> Result<(), UploadError> {
         let client = self.container.blob_client(name).block_blob_client();
         let block_size = self.block_size.get();
         let mut block_ids: Vec<Vec<u8>> = Vec::new();
         let mut buf = BytesMut::from(first);
 
         loop {
-            let next = rest.next().await.transpose().map_err(StoreError::Body)?;
+            let next = rest.next().await.transpose()?;
             if let Some(chunk) = &next {
                 buf.extend_from_slice(chunk);
             }
@@ -164,12 +164,9 @@ impl AzureBlobStore {
                 let block = buf.split_to(take).freeze();
                 // All block ids in a blob must have the same length; UUIDs are 16 bytes.
                 let id = uuid::Uuid::new_v4().as_bytes().to_vec();
-                if let Err(e) = client
+                client
                     .stage_block(&id, block.len() as u64, block.into(), None)
-                    .await
-                {
-                    return Ok(Err(e));
-                }
+                    .await?;
                 block_ids.push(id);
             }
             if next.is_none() {
@@ -186,14 +183,47 @@ impl AzureBlobStore {
             metadata: Some(metadata),
             ..Default::default()
         };
-        let content = match list.try_into() {
-            Ok(content) => content,
-            Err(e) => return Ok(Err(e)),
-        };
-        Ok(client
-            .commit_block_list(content, Some(options))
-            .await
-            .map(drop))
+        client
+            .commit_block_list(list.try_into()?, Some(options))
+            .await?;
+        Ok(())
+    }
+
+    /// One Put Blob for bodies up to a block, staged blocks plus a conditional commit beyond.
+    async fn upload(
+        &self,
+        name: &str,
+        len: u64,
+        body: UploadStream<'_>,
+        metadata: HashMap<String, String>,
+    ) -> Result<(), UploadError> {
+        let mut body = exact_length(body, len);
+        if len <= self.block_size.get() as u64 {
+            let chunks: Vec<Bytes> = body.try_collect().await?;
+            self.upload_small(name, Bytes::from(chunks.concat()), metadata)
+                .await
+        } else {
+            let first = body.next().await.transpose()?.unwrap_or_default();
+            self.upload_blocks(name, first, body, metadata).await
+        }
+    }
+}
+
+/// Why an upload failed: the client's body, or Azure.
+enum UploadError {
+    Body(std::io::Error),
+    Azure(azure_core::Error),
+}
+
+impl From<std::io::Error> for UploadError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Body(e)
+    }
+}
+
+impl From<azure_core::Error> for UploadError {
+    fn from(e: azure_core::Error) -> Self {
+        Self::Azure(e)
     }
 }
 
@@ -228,40 +258,28 @@ impl CacheStore for AzureBlobStore {
         &self,
         key: &CacheKey,
         len: u64,
-        body: ByteStream,
+        body: UploadStream<'_>,
         writer: &str,
     ) -> Result<PutOutcome, StoreError> {
         let name = self.blob_name(key.as_str());
-        let metadata = writer_metadata(writer);
-        let mut body = exact_length(body, len);
-
-        let result = if len <= self.block_size.get() as u64 {
-            let chunks: Vec<Bytes> = body.try_collect().await.map_err(StoreError::Body)?;
-            self.upload_small(&name, Bytes::from(chunks.concat()), metadata)
-                .await
-        } else {
-            let first = body
-                .next()
-                .await
-                .transpose()
-                .map_err(StoreError::Body)?
-                .unwrap_or_default();
-            self.upload_blocks(&name, first, body, metadata).await?
+        let e = match self.upload(&name, len, body, writer_metadata(writer)).await {
+            Ok(()) => return Ok(PutOutcome::Created),
+            Err(UploadError::Body(e)) => return Err(StoreError::Body(e)),
+            Err(UploadError::Azure(e)) => e,
         };
 
-        match result {
-            Ok(()) => Ok(PutOutcome::Created),
-            Err(e) if is_conflict(&e) => Ok(PutOutcome::AlreadyExists),
-            Err(e) if is_write_denied(&e) => Err(StoreError::WriteDenied(explain(&e))),
-            Err(e) => {
-                // A concurrent writer may have committed first, which can surface as an error
-                // other than 409 (e.g. our staged blocks were discarded by their commit).
-                // If the blob exists now, the outcome for this client is the same as a 409.
-                match self.container.blob_client(&name).exists().await {
-                    Ok(true) => Ok(PutOutcome::AlreadyExists),
-                    _ => Err(backend(e)),
-                }
-            }
+        if is_conflict(&e) {
+            return Ok(PutOutcome::AlreadyExists);
+        }
+        if is_write_denied(&e) {
+            return Err(StoreError::WriteDenied(explain(&e)));
+        }
+        // A concurrent writer may have committed first, which can surface as an error other
+        // than 409 (e.g. our staged blocks were discarded by their commit). If the blob exists
+        // now, the outcome for this client is the same as a 409.
+        match self.container.blob_client(&name).exists().await {
+            Ok(true) => Ok(PutOutcome::AlreadyExists),
+            _ => Err(backend(e)),
         }
     }
 

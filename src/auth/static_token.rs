@@ -27,15 +27,13 @@ impl StaticTokens {
         let entries = entries
             .into_iter()
             .map(|entry| {
-                let digest: [u8; 32] = hex::decode(entry.sha256.trim())
-                    .ok()
-                    .and_then(|d| d.try_into().ok())
-                    .ok_or_else(|| {
-                        format!(
-                            "static token {:?}: sha256 must be 64 hex characters",
-                            entry.name
-                        )
-                    })?;
+                let mut digest = [0u8; 32];
+                hex::decode_to_slice(entry.sha256.trim(), &mut digest).map_err(|e| {
+                    format!(
+                        "static token {:?}: sha256 must be 64 hex characters ({e})",
+                        entry.name
+                    )
+                })?;
                 Ok((digest, entry))
             })
             .collect::<Result<_, String>>()?;
