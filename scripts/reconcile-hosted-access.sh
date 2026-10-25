@@ -43,6 +43,9 @@ echo "== Federated credentials (deployment '$deployment', prefix '$prefix')"
 for role in writer reader; do
   identity="$prefix-ci-$role"
   allowed=$([ $role = writer ] && echo "$writer_subjects" || echo "$reader_subjects")
+  # Captured first, not read from a process substitution: a failed listing must stop the
+  # script (set -e), not look like an identity without credentials.
+  credentials=$(az identity federated-credential list -g "$rg" --identity-name "$identity" --query "[].[name, subject]" -o tsv)
   while IFS=$'\t' read -r name subject; do
     [ -n "$name" ] || continue
     if listed "$subject" "$allowed"; then
@@ -50,15 +53,27 @@ for role in writer reader; do
     else
       remove "$identity: $subject" az identity federated-credential delete -g "$rg" --identity-name "$identity" -n "$name" --yes
     fi
-  done < <(az identity federated-credential list -g "$rg" --identity-name "$identity" --query "[].[name, subject]" -o tsv)
+  done <<<"$credentials"
 done
 
 echo "== App role grants on the cache API ($api_client_id)"
 sp=$(az ad sp show --id "$api_client_id" --query id -o tsv)
 read_role=$(az ad sp show --id "$api_client_id" --query "appRoles[?value=='Cache.Read'].id | [0]" -o tsv)
 write_role=$(az ad sp show --id "$api_client_id" --query "appRoles[?value=='Cache.Write'].id | [0]" -o tsv)
-grants=$(az rest --method GET --url "https://graph.microsoft.com/v1.0/servicePrincipals/$sp/appRoleAssignedTo" \
-  --query "value[].[id, principalType, principalId, appRoleId, principalDisplayName]" -o tsv)
+# Without the role ids every group grant would look unlisted and be deleted.
+[ -n "$sp" ] && [ -n "$read_role" ] && [ -n "$write_role" ] ||
+  { echo "could not find the cache API's service principal or its Cache.Read/Cache.Write roles" >&2; exit 1; }
+
+# Every page: Graph returns at most one page per request and links the next in @odata.nextLink.
+# Each page is asked for twice (its rows, then its link) to need nothing but az; the link is
+# opaque and stable, so both describe the same page.
+grants=""
+url="https://graph.microsoft.com/v1.0/servicePrincipals/$sp/appRoleAssignedTo?\$top=999"
+while [ -n "$url" ]; do
+  page=$(az rest --method GET --url "$url" --query "value[].[id, principalType, principalId, appRoleId, principalDisplayName]" -o tsv)
+  grants+="$page"$'\n'
+  url=$(az rest --method GET --url "$url" --query '"@odata.nextLink"' -o tsv)
+done
 while IFS=$'\t' read -r id type principal role display; do
   [ -n "$id" ] || continue
   case "$role" in
