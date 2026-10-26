@@ -1,7 +1,7 @@
 # End-to-end test through the nx-remote-cache action and a real Nx client, with the server built
 # from this commit running inside the job and using storage directly (deploy/local.bicep). The
 # action's home is graycoreio/github-actions/nx-remote-cache; until it is merged there, its build
-# is tested from graycoreio/nx-remote-cache-action@test/ts-action.
+# is tested from graycoreio/github-actions/nx-remote-cache@feat/nx-remote-cache.
 #
 # Push to main → the action requests the WRITER identity: uploads must land and be read back.
 # Pull request → the READER identity: reads work, uploads are skipped without failing the run.
@@ -80,7 +80,7 @@ jobs:
           echo "NXWS=$ws" >> "$GITHUB_ENV"
 
       - name: Configure the remote cache (action under test)
-        uses: graycoreio/nx-remote-cache-action@test/ts-action
+        uses: graycoreio/github-actions/nx-remote-cache@feat/nx-remote-cache
         with:
           tenant-id: ${{ vars.NX_CACHE_E2E_TENANT_ID }}
           writer-client-id: ${{ vars.NX_CACHE_E2E_WRITER_CLIENT_ID }}
