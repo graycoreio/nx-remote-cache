@@ -1,7 +1,6 @@
 // The two CI identities: a writer and a reader user-assigned managed identity, each trusting
-// GitHub Actions OIDC tokens for an exact list of subjects. Shared by hosted.bicep (hosted
-// server: the identities get app roles on the cache API) and local.bicep (server inside the CI
-// job: the identities get storage roles directly).
+// GitHub Actions OIDC tokens for an exact list of subjects. local.bicep gives them their storage
+// roles on the cache container.
 
 param namePrefix string
 param location string = resourceGroup().location
@@ -13,6 +12,12 @@ param writerSubjects array
 param readerSubjects array
 
 var githubIssuer = 'https://token.actions.githubusercontent.com'
+
+// Named after the subject, not its position in the list: removing or reordering subjects then
+// leaves the other credentials alone. (Positional names retargeted them, and the duplicate
+// subject that left behind failed the deployment.) Removing a subject from the list does not
+// delete its credential by itself; see the README's "Revoking access".
+func credentialName(subject string) string => 'github-${uniqueString(subject)}'
 
 resource writer 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: '${namePrefix}-ci-writer'
@@ -27,9 +32,9 @@ resource reader 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = 
 // Federated credentials on one identity must be created one at a time (409 otherwise).
 @batchSize(1)
 resource writerCredentials 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = [
-  for (subject, i) in writerSubjects: {
+  for subject in writerSubjects: {
     parent: writer
-    name: 'github-${i}'
+    name: credentialName(subject)
     properties: {
       issuer: githubIssuer
       subject: subject
@@ -40,9 +45,9 @@ resource writerCredentials 'Microsoft.ManagedIdentity/userAssignedIdentities/fed
 
 @batchSize(1)
 resource readerCredentials 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = [
-  for (subject, i) in readerSubjects: {
+  for subject in readerSubjects: {
     parent: reader
-    name: 'github-${i}'
+    name: credentialName(subject)
     properties: {
       issuer: githubIssuer
       subject: subject

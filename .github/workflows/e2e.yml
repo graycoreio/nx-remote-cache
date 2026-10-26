@@ -1,8 +1,7 @@
-# End-to-end test through the nx-remote-cache action and a real Nx client, in both of the
-# action's modes. The action's home is graycoreio/github-actions/nx-remote-cache; until it is
-# merged there, its build is tested from graycoreio/nx-remote-cache-action@test/ts-action.
-#   remote: against the deployed server (deploy/hosted.bicep)
-#   local:  the server runs inside the job and uses storage directly (deploy/local.bicep)
+# End-to-end test through the nx-remote-cache action and a real Nx client, with the server built
+# from this commit running inside the job and using storage directly (deploy/local.bicep). The
+# action's home is graycoreio/github-actions/nx-remote-cache; until it is merged there, its build
+# is tested from graycoreio/nx-remote-cache-action@test/ts-action.
 #
 # Push to main → the action requests the WRITER identity: uploads must land and be read back.
 # Pull request → the READER identity: reads work, uploads are skipped without failing the run.
@@ -10,10 +9,9 @@
 # federated credential on non-main branches, and asks for the reader identity on main.)
 #
 # Configure with repository variables (Settings → Secrets and variables → Actions → Variables),
-# from the deployment outputs. The job is skipped while they are unset:
-#   NX_CACHE_E2E_URL, NX_CACHE_E2E_API_SCOPE                       (hosted.bicep)
-#   NX_CACHE_E2E_STORAGE_ACCOUNT, NX_CACHE_E2E_STORAGE_CONTAINER   (local.bicep)
-#   NX_CACHE_E2E_TENANT_ID, NX_CACHE_E2E_WRITER_CLIENT_ID, NX_CACHE_E2E_READER_CLIENT_ID (both)
+# from local.bicep's outputs. The job is skipped while they are unset:
+#   NX_CACHE_E2E_TENANT_ID, NX_CACHE_E2E_STORAGE_ACCOUNT, NX_CACHE_E2E_STORAGE_CONTAINER,
+#   NX_CACHE_E2E_WRITER_CLIENT_ID, NX_CACHE_E2E_READER_CLIENT_ID
 #
 # The "shared entry" check on PRs reads an entry written by a main run, so main must have run
 # this workflow at least once against the deployment.
@@ -35,7 +33,6 @@ concurrency:
 
 env:
   NX_VERSION: 23.3.0
-  # Local mode runs the server built from this commit; remote mode tests the deployed server.
   SERVER_BIN: ${{ github.workspace }}/target/debug/nx-remote-cache
   NX_DAEMON: 'false'
   NX_NO_CLOUD: 'true'
@@ -44,13 +41,9 @@ jobs:
   e2e:
     # Fork PRs get no OIDC token (the action then turns the cache off), so there is nothing to test.
     if: >-
-      vars.NX_CACHE_E2E_URL != '' &&
+      vars.NX_CACHE_E2E_STORAGE_ACCOUNT != '' &&
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        mode: [remote, local]
     steps:
       - uses: actions/checkout@v5
 
@@ -59,14 +52,11 @@ jobs:
           node-version: 22
 
       # A debug build: quicker to compile, and behaves the same as a release build.
-      - if: matrix.mode == 'local'
-        uses: dtolnay/rust-toolchain@stable
-      - if: matrix.mode == 'local'
-        uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the server from this commit
-        if: matrix.mode == 'local'
         run: cargo build --locked
 
       - name: Create a throwaway Nx workspace
@@ -92,12 +82,9 @@ jobs:
       - name: Configure the remote cache (action under test)
         uses: graycoreio/nx-remote-cache-action@test/ts-action
         with:
-          mode: ${{ matrix.mode }}
           tenant-id: ${{ vars.NX_CACHE_E2E_TENANT_ID }}
           writer-client-id: ${{ vars.NX_CACHE_E2E_WRITER_CLIENT_ID }}
           reader-client-id: ${{ vars.NX_CACHE_E2E_READER_CLIENT_ID }}
-          server-url: ${{ vars.NX_CACHE_E2E_URL }}
-          api-scope: ${{ vars.NX_CACHE_E2E_API_SCOPE }}
           storage-account: ${{ vars.NX_CACHE_E2E_STORAGE_ACCOUNT }}
           storage-container: ${{ vars.NX_CACHE_E2E_STORAGE_CONTAINER }}
           server-binary: ${{ env.SERVER_BIN }}
@@ -105,34 +92,22 @@ jobs:
       - name: Expected access
         run: |
           if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = "refs/heads/${{ github.event.repository.default_branch }}" ]; then
-            echo "WANT=Cache.Write" >> "$GITHUB_ENV"
+            echo "WANT=write" >> "$GITHUB_ENV"
           else
-            echo "WANT=Cache.Read" >> "$GITHUB_ENV"
+            echo "WANT=read" >> "$GITHUB_ENV"
           fi
-
-      # Remote mode only: the local mode's token is a random per-job secret, not a JWT.
-      - name: Token claims
-        if: matrix.mode == 'remote'
-        run: |
-          # Claims only; the token itself stays masked.
-          payload=$(cut -d. -f2 <<<"$NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN" | tr '_-' '/+')
-          while [ $(( ${#payload} % 4 )) -ne 0 ]; do payload="$payload="; done
-          claims=$(base64 -d <<<"$payload")
-          jq '{iss, aud, azp, oid, roles, lifetime_minutes: ((.exp - .iat) / 60 | floor)}' <<<"$claims"
-          jq -e --arg want "$WANT" '.roles | index($want) != null' <<<"$claims" >/dev/null \
-            || { echo "::error::expected role $WANT in the token"; exit 1; }
 
       - name: Protocol checks
         run: |
           url="$NX_SELF_HOSTED_REMOTE_CACHE_SERVER/v1/cache"
           auth="Authorization: Bearer $NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN"
-          hash="e2eprobe${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}${{ matrix.mode }}"
+          hash="e2eprobe${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}local"
           status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
           expect() { [ "$2" = "$3" ] && echo "ok   $1: $2" || { echo "::error::$1: expected $3, got $2"; exit 1; }; }
 
           expect "GET missing entry" "$(status -H "$auth" "$url/$hash")" 404
           expect "GET without token" "$(status "$url/$hash")" 401
-          if [ "$WANT" = Cache.Write ]; then
+          if [ "$WANT" = write ]; then
             expect "PUT new entry" "$(status -X PUT -H "$auth" --data probe "$url/$hash")" 200
             expect "PUT same entry again" "$(status -X PUT -H "$auth" --data other "$url/$hash")" 409
             expect "GET stored entry" "$(curl -s -H "$auth" "$url/$hash")" probe
@@ -147,11 +122,11 @@ jobs:
           build() { npx nx build e2e --output-style=static 2>&1 | tee "$RUNNER_TEMP/nx.log"; }
           fresh() { npx nx reset >/dev/null 2>&1; rm -rf dist; }
 
-          echo "run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.mode }}" > libs/e2e/input.txt
+          echo "run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-local" > libs/e2e/input.txt
           fresh; build
           first=$(cat dist/e2e/out.txt)
           fresh; build
-          if [ "$WANT" = Cache.Write ]; then
+          if [ "$WANT" = write ]; then
             grep -q '\[remote cache\]' "$RUNNER_TEMP/nx.log" || { echo "::error::writer: second build was not served from the remote cache"; exit 1; }
             [ "$(cat dist/e2e/out.txt)" = "$first" ] || { echo "::error::writer: restored output differs"; exit 1; }
             echo "ok   writer: stored, then restored byte-identical output"
@@ -166,7 +141,7 @@ jobs:
           echo "shared-v1" > libs/e2e/input.txt
           npx nx reset >/dev/null 2>&1; rm -rf dist
           npx nx build e2e --output-style=static 2>&1 | tee "$RUNNER_TEMP/nx.log"
-          if [ "$WANT" = Cache.Write ]; then
+          if [ "$WANT" = write ]; then
             # First main run stores it; later ones hit it (and Nx's upload then gets a silent 409).
             echo "ok   writer: shared entry built or restored"
           else
@@ -179,7 +154,7 @@ jobs:
       # the identity's role on the container is. Prove it with a local server configured as
       # WRITABLE but running with the READER identity. Azure must refuse the write.
       - name: Azure enforces read-only for the reader identity (local mode)
-        if: matrix.mode == 'local' && env.WANT == 'Cache.Read'
+        if: env.WANT == 'read'
         env:
           TENANT_ID: ${{ vars.NX_CACHE_E2E_TENANT_ID }}
           READER_CLIENT_ID: ${{ vars.NX_CACHE_E2E_READER_CLIENT_ID }}
@@ -206,7 +181,7 @@ jobs:
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true' EXIT
           for _ in $(seq 1 60); do
-            curl -fsS -o /dev/null http://127.0.0.1:3999/ready 2>/dev/null && break
+            curl -fsS -o /dev/null http://127.0.0.1:3999/health 2>/dev/null && break
             kill -0 "$pid" 2>/dev/null || { echo "::error::the server exited at startup"; cat "$dir/server.log"; exit 1; }
             sleep 1
           done

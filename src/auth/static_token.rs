@@ -27,15 +27,13 @@ impl StaticTokens {
         let entries = entries
             .into_iter()
             .map(|entry| {
-                let digest: [u8; 32] = hex::decode(entry.sha256.trim())
-                    .ok()
-                    .and_then(|d| d.try_into().ok())
-                    .ok_or_else(|| {
-                        format!(
-                            "static token {:?}: sha256 must be 64 hex characters",
-                            entry.name
-                        )
-                    })?;
+                let mut digest = [0u8; 32];
+                hex::decode_to_slice(entry.sha256.trim(), &mut digest).map_err(|e| {
+                    format!(
+                        "static token {:?}: sha256 must be 64 hex characters ({e})",
+                        entry.name
+                    )
+                })?;
                 Ok((digest, entry))
             })
             .collect::<Result<_, String>>()?;
@@ -53,7 +51,7 @@ impl Authenticator for StaticTokens {
         &self,
         presented: &Presented<'_>,
     ) -> Result<Option<Principal>, AuthError> {
-        let Presented::Opaque(token) = presented else {
+        let Presented::Bearer(token) = presented else {
             return Ok(None);
         };
         let digest = Sha256::digest(token.as_bytes());
@@ -65,10 +63,8 @@ impl Authenticator for StaticTokens {
             }
         }
         Ok(matched.map(|entry| Principal {
-            provider: "static",
-            subject: entry.name.clone(),
+            name: entry.name.clone(),
             scope: entry.scope,
-            meta: [("token".to_owned(), entry.name.clone())].into(),
         }))
     }
 }
@@ -86,14 +82,14 @@ mod tests {
         }])
         .unwrap();
         let p = tokens
-            .authenticate(&Presented::Opaque("s3cret"))
+            .authenticate(&Presented::Bearer("s3cret"))
             .await
             .unwrap()
             .unwrap();
-        assert_eq!((p.subject.as_str(), p.scope), ("dev", Scope::Read));
+        assert_eq!((p.name.as_str(), p.scope), ("dev", Scope::Read));
         assert!(
             tokens
-                .authenticate(&Presented::Opaque("nope"))
+                .authenticate(&Presented::Bearer("nope"))
                 .await
                 .unwrap()
                 .is_none()

@@ -14,8 +14,7 @@ use nx_remote_cache::{
     },
     http::{AppState, app},
     store::{
-        Artifact, ByteStream, CacheKey, CacheStore, PutOutcome, StoreError, WriteMeta,
-        memory::MemoryStore,
+        Artifact, CacheKey, CacheStore, PutOutcome, StoreError, UploadStream, memory::MemoryStore,
     },
 };
 use tokio::{
@@ -41,8 +40,8 @@ impl CacheStore for DenyingStore {
         &self,
         _: &CacheKey,
         _: u64,
-        mut body: ByteStream,
-        _: &WriteMeta,
+        mut body: UploadStream<'_>,
+        _: &str,
     ) -> Result<PutOutcome, StoreError> {
         body.next().await;
         Err(StoreError::WriteDenied(
@@ -74,8 +73,6 @@ async fn serve(store: Arc<dyn CacheStore>) -> std::net::SocketAddr {
         store,
         auth,
         max_artifact_bytes: 2 * BODY as u64,
-        #[cfg(feature = "mint")]
-        minter: None,
     };
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

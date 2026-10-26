@@ -1,15 +1,12 @@
 //! `GET`/`PUT /v1/cache/{hash}`, per the Nx remote cache OpenAPI spec.
 
-use std::sync::Arc;
-
 use axum::{
     body::{Body, BodyDataStream},
     extract::{Path, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use futures::{StreamExt, stream};
-use tokio::sync::Mutex;
+use futures::{StreamExt, TryStreamExt};
 
 use super::{AppState, authenticate};
 use crate::{
@@ -72,24 +69,26 @@ pub async fn put(
     // above): hyper closes the connection on a body left unread, and Nx, which sends the whole
     // body before reading the response, then fails the task on the broken pipe instead of
     // seeing the status. A 403 it would skip quietly becomes a failed run.
-    let body = Arc::new(Mutex::new(body.into_data_stream()));
+    let mut body = body.into_data_stream();
     if !principal.scope.allows(Scope::ReadWrite) {
-        drain(&body).await;
+        drain(&mut body).await;
         // Nx treats 403 on PUT as "not allowed to store" and silently skips the upload.
         return Err(ApiError::Forbidden("this token is read-only".into()));
     }
 
+    // Borrowed, so whatever the store leaves unread (e.g. storage refusing the first block) can
+    // still be drained below.
+    let upload = body.by_ref().map_err(std::io::Error::other).boxed();
     let result = state
         .store
-        .put_if_absent(&key, len, shared(body.clone()), &principal.meta)
+        .put_if_absent(&key, len, upload, &principal.name)
         .await;
-    // The store may stop reading early (e.g. storage refusing the first block).
     if !matches!(result, Err(StoreError::Body(_))) {
-        drain(&body).await;
+        drain(&mut body).await;
     }
     match result {
         Ok(PutOutcome::Created) => {
-            tracing::info!(hash, len, writer = %principal.subject, provider = principal.provider, "stored artifact");
+            tracing::info!(hash, len, writer = %principal.name, "stored artifact");
             Ok(StatusCode::OK)
         }
         Ok(PutOutcome::AlreadyExists) => Err(ApiError::Conflict),
@@ -109,16 +108,7 @@ pub async fn put(
     }
 }
 
-/// The upload body as a store stream that leaves the rest of the body readable for `drain`.
-fn shared(body: Arc<Mutex<BodyDataStream>>) -> crate::store::ByteStream {
-    Box::pin(stream::unfold(body, |body| async move {
-        let chunk = body.lock().await.next().await?;
-        Some((chunk.map_err(std::io::Error::other), body))
-    }))
-}
-
 /// Reads and discards what is left of the upload body.
-async fn drain(body: &Mutex<BodyDataStream>) {
-    let mut body = body.lock().await;
+async fn drain(body: &mut BodyDataStream) {
     while let Some(Ok(_)) = body.next().await {}
 }

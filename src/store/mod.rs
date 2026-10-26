@@ -5,7 +5,6 @@ pub mod azure;
 pub mod memory;
 
 use std::{
-    collections::BTreeMap,
     io,
     pin::Pin,
     task::{Context, Poll},
@@ -15,10 +14,10 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{Stream, stream::BoxStream};
 
+/// A download body, which outlives the store call that produced it.
 pub type ByteStream = BoxStream<'static, Result<Bytes, io::Error>>;
-
-/// Provenance recorded alongside each artifact (e.g. who wrote it, from which CI run).
-pub type WriteMeta = BTreeMap<String, String>;
+/// An upload body. Borrowed: the handler reads what the store leaves unread once it returns.
+pub type UploadStream<'a> = BoxStream<'a, Result<Bytes, io::Error>>;
 
 /// A validated Nx task hash. Restricting the alphabet means a key can never be used to
 /// address anything outside the cache prefix.
@@ -77,17 +76,18 @@ pub trait CacheStore: Send + Sync + 'static {
         &self,
         key: &CacheKey,
         len: u64,
-        body: ByteStream,
-        meta: &WriteMeta,
+        body: UploadStream<'_>,
+        // Who wrote it (the token's name), recorded with the artifact.
+        writer: &str,
     ) -> Result<PutOutcome, StoreError>;
 
-    /// Cheap check that the backend is reachable and we are authorized. Used at startup and by
-    /// the readiness probe.
+    /// Cheap check that the backend is reachable and we are authorized. Run once at startup,
+    /// before the server listens.
     async fn ready(&self) -> Result<(), StoreError>;
 }
 
 /// Wraps an upload body so that it yields exactly `expected` bytes, erroring otherwise.
-pub fn exact_length(body: ByteStream, expected: u64) -> ByteStream {
+pub fn exact_length(body: UploadStream<'_>, expected: u64) -> UploadStream<'_> {
     Box::pin(ExactLength {
         inner: body,
         expected,
@@ -96,14 +96,14 @@ pub fn exact_length(body: ByteStream, expected: u64) -> ByteStream {
     })
 }
 
-struct ExactLength {
-    inner: ByteStream,
+struct ExactLength<'a> {
+    inner: UploadStream<'a>,
     expected: u64,
     seen: u64,
     done: bool,
 }
 
-impl Stream for ExactLength {
+impl Stream for ExactLength<'_> {
     type Item = Result<Bytes, io::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

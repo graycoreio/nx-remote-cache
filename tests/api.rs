@@ -1,10 +1,6 @@
-//! HTTP-level tests against the in-memory store: the Nx spec's status codes, auth behaviour
-//! and the Entra provider with locally signed tokens.
+//! HTTP-level tests against the in-memory store: the Nx spec's status codes and auth behaviour.
 
-use std::{
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::Arc;
 
 use axum::{
     body::Body,
@@ -12,24 +8,18 @@ use axum::{
     response::Response,
 };
 use http_body_util::BodyExt;
-use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use nx_remote_cache::{
     auth::{
-        AuthChain, Authenticator, Scope,
-        anonymous::Anonymous,
-        entra::{EntraAuthenticator, EntraConfig},
+        AuthChain, Scope,
         static_token::{StaticTokenEntry, StaticTokens, hash_token},
     },
     http::{App, AppState, app},
     store::{CacheKey, memory::MemoryStore},
 };
-use serde_json::json;
 use tower::ServiceExt;
 
 const READ_TOKEN: &str = "read-token";
 const WRITE_TOKEN: &str = "write-token";
-const TENANT: &str = "11111111-1111-1111-1111-111111111111";
-const API_CLIENT_ID: &str = "22222222-2222-2222-2222-222222222222";
 const MAX: u64 = 1024;
 
 struct Harness {
@@ -37,84 +27,30 @@ struct Harness {
     store: Arc<MemoryStore>,
 }
 
-async fn harness(anonymous: bool) -> Harness {
+async fn harness() -> Harness {
     let store = Arc::new(MemoryStore::new());
-    let mut providers: Vec<Arc<dyn Authenticator>> = vec![
-        Arc::new(entra().await),
-        Arc::new(
-            StaticTokens::new(vec![
-                StaticTokenEntry {
-                    name: "dev".into(),
-                    sha256: hash_token(READ_TOKEN),
-                    scope: Scope::Read,
-                },
-                StaticTokenEntry {
-                    name: "ci".into(),
-                    sha256: hash_token(WRITE_TOKEN),
-                    scope: Scope::ReadWrite,
-                },
-            ])
-            .unwrap(),
-        ),
-    ];
-    if anonymous {
-        providers.push(Arc::new(Anonymous { scope: Scope::Read }));
-    }
+    let tokens = StaticTokens::new(vec![
+        StaticTokenEntry {
+            name: "dev".into(),
+            sha256: hash_token(READ_TOKEN),
+            scope: Scope::Read,
+        },
+        StaticTokenEntry {
+            name: "ci".into(),
+            sha256: hash_token(WRITE_TOKEN),
+            scope: Scope::ReadWrite,
+        },
+    ])
+    .unwrap();
     let state = AppState {
         store: store.clone(),
-        auth: AuthChain::new(providers),
+        auth: AuthChain::new(vec![Arc::new(tokens)]),
         max_artifact_bytes: MAX,
-        #[cfg(feature = "mint")]
-        minter: None,
     };
     Harness {
         app: app(state),
         store,
     }
-}
-
-fn entra_config() -> EntraConfig {
-    serde_json::from_value(json!({
-        "tenant_id": TENANT,
-        "audiences": [API_CLIENT_ID],
-    }))
-    .unwrap()
-}
-
-async fn entra() -> EntraAuthenticator {
-    let jwks = include_str!("fixtures/test_jwks.json");
-    EntraAuthenticator::from_jwks_text(entra_config(), jwks)
-        .await
-        .unwrap()
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64
-}
-
-fn entra_claims(roles: &[&str]) -> serde_json::Value {
-    json!({
-        "iss": entra_config().issuer(),
-        "aud": API_CLIENT_ID,
-        "tid": TENANT,
-        "sub": "writer-sp-object-id",
-        "oid": "writer-sp-object-id",
-        "azp": "33333333-3333-3333-3333-333333333333",
-        "roles": roles,
-        "iat": now(),
-        "nbf": now() - 10,
-        "exp": now() + 3600,
-    })
-}
-
-fn sign(claims: &serde_json::Value) -> String {
-    let key = EncodingKey::from_rsa_pem(include_bytes!("fixtures/test_rsa_private.pem")).unwrap();
-    let mut header = Header::new(Algorithm::RS256);
-    header.kid = Some("test-key-1".into());
-    jsonwebtoken::encode(&header, claims, &key).unwrap()
 }
 
 impl Harness {
@@ -167,7 +103,7 @@ fn assert_text_plain(res: &Response) {
 
 #[tokio::test]
 async fn missing_token_is_401_text_plain() {
-    let h = harness(false).await;
+    let h = harness().await;
     let res = h.get("/v1/cache/123", None).await;
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
     // Nx reports a 401 without exactly `text/plain` as a misconfigured server.
@@ -177,7 +113,7 @@ async fn missing_token_is_401_text_plain() {
 
 #[tokio::test]
 async fn unknown_and_malformed_tokens_are_401() {
-    let h = harness(false).await;
+    let h = harness().await;
     assert_eq!(
         h.get("/v1/cache/123", Some("nope")).await.status(),
         StatusCode::UNAUTHORIZED
@@ -191,7 +127,7 @@ async fn unknown_and_malformed_tokens_are_401() {
 
 #[tokio::test]
 async fn put_get_roundtrip_and_no_overwrite() {
-    let h = harness(false).await;
+    let h = harness().await;
     assert_eq!(
         h.get("/v1/cache/123", Some(WRITE_TOKEN)).await.status(),
         StatusCode::NOT_FOUND
@@ -218,13 +154,13 @@ async fn put_get_roundtrip_and_no_overwrite() {
 
 #[tokio::test]
 async fn read_only_token_gets_403_on_put() {
-    let h = harness(false).await;
+    let h = harness().await;
     let res = h.put("/v1/cache/123", Some(READ_TOKEN), b"data").await;
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
     assert_text_plain(&res);
     assert!(
         h.store
-            .meta(&CacheKey::parse("123").unwrap())
+            .writer(&CacheKey::parse("123").unwrap())
             .await
             .is_none()
     );
@@ -232,7 +168,7 @@ async fn read_only_token_gets_403_on_put() {
 
 #[tokio::test]
 async fn put_validation() {
-    let h = harness(false).await;
+    let h = harness().await;
     let missing_len = h
         .put_with_len("/v1/cache/1", Some(WRITE_TOKEN), b"data", None)
         .await;
@@ -261,7 +197,7 @@ async fn put_validation() {
 
 #[tokio::test]
 async fn invalid_hash_is_not_revealed_to_unauthenticated_callers() {
-    let h = harness(false).await;
+    let h = harness().await;
     assert_eq!(
         h.get("/v1/cache/a.b", None).await.status(),
         StatusCode::UNAUTHORIZED
@@ -270,7 +206,7 @@ async fn invalid_hash_is_not_revealed_to_unauthenticated_callers() {
 
 #[tokio::test]
 async fn double_slash_from_trailing_slash_server_url_is_tolerated() {
-    let h = harness(false).await;
+    let h = harness().await;
     assert_eq!(
         h.put("//v1/cache/42", Some(WRITE_TOKEN), b"x")
             .await
@@ -285,7 +221,7 @@ async fn double_slash_from_trailing_slash_server_url_is_tolerated() {
 
 #[tokio::test]
 async fn concurrent_puts_have_exactly_one_winner() {
-    let h = Arc::new(harness(false).await);
+    let h = Arc::new(harness().await);
     let tasks: Vec<_> = (0..16)
         .map(|i| {
             let h = h.clone();
@@ -315,154 +251,25 @@ async fn concurrent_puts_have_exactly_one_winner() {
 }
 
 #[tokio::test]
-async fn anonymous_read_when_enabled() {
-    let h = harness(true).await;
-    h.put("/v1/cache/7", Some(WRITE_TOKEN), b"x").await;
-    assert_eq!(h.get("/v1/cache/7", None).await.status(), StatusCode::OK);
-    assert_eq!(
-        h.put("/v1/cache/8", None, b"x").await.status(),
-        StatusCode::FORBIDDEN
-    );
-    // A bad token is still rejected rather than silently downgraded to anonymous.
-    assert_eq!(
-        h.get("/v1/cache/7", Some("nope")).await.status(),
-        StatusCode::UNAUTHORIZED
-    );
-}
-
-#[tokio::test]
-async fn health_and_ready() {
-    let h = harness(false).await;
+async fn health_and_no_ready_endpoint() {
+    let h = harness().await;
     assert_eq!(h.get("/health", None).await.status(), StatusCode::OK);
-    assert_eq!(h.get("/ready", None).await.status(), StatusCode::OK);
+    // Storage is checked once, before the server listens; there is no separate readiness probe.
+    assert_eq!(h.get("/ready", None).await.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
-async fn entra_write_role_can_put_and_records_provenance() {
-    let h = harness(false).await;
-    let token = sign(&entra_claims(&["Cache.Write"]));
+async fn writes_record_the_token_name_as_provenance() {
+    let h = harness().await;
     assert_eq!(
-        h.put("/v1/cache/9", Some(&token), b"x").await.status(),
+        h.put("/v1/cache/9", Some(WRITE_TOKEN), b"x").await.status(),
         StatusCode::OK
     );
-    let meta = h.store.meta(&CacheKey::parse("9").unwrap()).await.unwrap();
-    assert_eq!(meta["provider"], "entra");
-    assert_eq!(meta["subject"], "writer-sp-object-id");
-    assert_eq!(meta["client_id"], "33333333-3333-3333-3333-333333333333");
-}
-
-#[tokio::test]
-async fn entra_read_role_cannot_put() {
-    let h = harness(false).await;
-    let token = sign(&entra_claims(&["Cache.Read"]));
     assert_eq!(
-        h.get("/v1/cache/9", Some(&token)).await.status(),
-        StatusCode::NOT_FOUND
-    );
-    assert_eq!(
-        h.put("/v1/cache/9", Some(&token), b"x").await.status(),
-        StatusCode::FORBIDDEN
-    );
-}
-
-#[tokio::test]
-async fn entra_rejects_bad_tokens() {
-    let h = harness(false).await;
-    let mut cases: Vec<(&str, serde_json::Value)> = Vec::new();
-
-    cases.push(("no roles", entra_claims(&[])));
-    cases.push(("unrelated role", entra_claims(&["Something.Else"])));
-
-    let mut c = entra_claims(&["Cache.Write"]);
-    c["aud"] = json!("api://some-other-api");
-    cases.push(("wrong audience", c));
-
-    let mut c = entra_claims(&["Cache.Write"]);
-    c["nbf"] = json!(now() + 3600);
-    cases.push(("not yet valid", c));
-
-    let mut c = entra_claims(&["Cache.Write"]);
-    c["tid"] = json!("99999999-9999-9999-9999-999999999999");
-    cases.push(("wrong tenant id", c));
-
-    let mut c = entra_claims(&["Cache.Write"]);
-    c["iss"] = json!("https://login.microsoftonline.com/99999999-9999-9999-9999-999999999999/v2.0");
-    cases.push(("another tenant's issuer", c));
-
-    let mut c = entra_claims(&["Cache.Write"]);
-    c["iss"] = json!("https://token.actions.githubusercontent.com");
-    cases.push(("github issuer without the mint provider", c));
-
-    for (name, claims) in cases {
-        let res = h.put("/v1/cache/10", Some(&sign(&claims)), b"x").await;
-        assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "{name}");
-        assert_text_plain(&res);
-    }
-    assert!(
         h.store
-            .meta(&CacheKey::parse("10").unwrap())
+            .writer(&CacheKey::parse("9").unwrap())
             .await
-            .is_none()
-    );
-}
-
-#[tokio::test]
-async fn entra_expired_token_is_401_like_any_invalid_token() {
-    // Expiry gets no special treatment: a 401 makes Nx fail the run, which surfaces stale
-    // CI credentials instead of silently losing cache reads and writes.
-    let h = harness(false).await;
-    h.put("/v1/cache/13", Some(WRITE_TOKEN), b"x").await;
-    let mut claims = entra_claims(&["Cache.Write"]);
-    claims["exp"] = json!(now() - 3600);
-    let token = sign(&claims);
-
-    let get = h.get("/v1/cache/13", Some(&token)).await;
-    assert_eq!(get.status(), StatusCode::UNAUTHORIZED);
-    assert_text_plain(&get);
-    let put = h.put("/v1/cache/14", Some(&token), b"x").await;
-    assert_eq!(put.status(), StatusCode::UNAUTHORIZED);
-    assert!(
-        h.store
-            .meta(&CacheKey::parse("14").unwrap())
-            .await
-            .is_none()
-    );
-}
-
-#[tokio::test]
-async fn entra_rejects_tampered_signature() {
-    let h = harness(false).await;
-    let token = sign(&entra_claims(&["Cache.Read"]));
-    // Swap in a payload granting write, keeping the original signature.
-    let forged_payload = {
-        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-        URL_SAFE_NO_PAD.encode(entra_claims(&["Cache.Write"]).to_string())
-    };
-    let mut parts: Vec<&str> = token.split('.').collect();
-    parts[1] = &forged_payload;
-    let forged = parts.join(".");
-    assert_eq!(
-        h.put("/v1/cache/11", Some(&forged), b"x").await.status(),
-        StatusCode::UNAUTHORIZED
-    );
-}
-
-#[tokio::test]
-async fn entra_rejects_hs256_signed_with_public_material() {
-    // Classic alg-confusion attempt: an HMAC token "signed" with something public. The RSA key
-    // only allows RSA algorithms, so this must fail regardless of the secret used.
-    let h = harness(false).await;
-    let mut header = Header::new(Algorithm::HS256);
-    header.kid = Some("test-key-1".into());
-    let jwks = include_str!("fixtures/test_jwks.json");
-    let token = jsonwebtoken::encode(
-        &header,
-        &entra_claims(&["Cache.Write"]),
-        &EncodingKey::from_secret(jwks.as_bytes()),
-    )
-    .unwrap();
-    assert_eq!(
-        h.put("/v1/cache/12", Some(&token), b"x").await.status(),
-        StatusCode::UNAUTHORIZED
+            .as_deref(),
+        Some("ci")
     );
 }

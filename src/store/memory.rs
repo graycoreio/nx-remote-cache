@@ -7,13 +7,11 @@ use bytes::Bytes;
 use futures::{StreamExt, TryStreamExt, stream};
 use tokio::sync::RwLock;
 
-use super::{
-    Artifact, ByteStream, CacheKey, CacheStore, PutOutcome, StoreError, WriteMeta, exact_length,
-};
+use super::{Artifact, CacheKey, CacheStore, PutOutcome, StoreError, UploadStream, exact_length};
 
 #[derive(Default)]
 pub struct MemoryStore {
-    entries: RwLock<HashMap<CacheKey, (Bytes, WriteMeta)>>,
+    entries: RwLock<HashMap<CacheKey, (Bytes, String)>>,
 }
 
 impl MemoryStore {
@@ -21,8 +19,9 @@ impl MemoryStore {
         Self::default()
     }
 
-    pub async fn meta(&self, key: &CacheKey) -> Option<WriteMeta> {
-        self.entries.read().await.get(key).map(|(_, m)| m.clone())
+    /// The name of the token that wrote an entry.
+    pub async fn writer(&self, key: &CacheKey) -> Option<String> {
+        self.entries.read().await.get(key).map(|(_, w)| w.clone())
     }
 }
 
@@ -44,18 +43,20 @@ impl CacheStore for MemoryStore {
         &self,
         key: &CacheKey,
         len: u64,
-        body: ByteStream,
-        meta: &WriteMeta,
+        body: UploadStream<'_>,
+        writer: &str,
     ) -> Result<PutOutcome, StoreError> {
-        // Buffer before taking the lock so a slow client can't block other requests.
+        // Read and assemble before taking the lock, so neither a slow client nor the copy blocks
+        // other requests.
         let chunks: Vec<Bytes> = exact_length(body, len)
             .try_collect()
             .await
             .map_err(StoreError::Body)?;
+        let data = Bytes::from(chunks.concat());
         match self.entries.write().await.entry(key.clone()) {
             Entry::Occupied(_) => Ok(PutOutcome::AlreadyExists),
             Entry::Vacant(slot) => {
-                slot.insert((Bytes::from(chunks.concat()), meta.clone()));
+                slot.insert((data, writer.to_owned()));
                 Ok(PutOutcome::Created)
             }
         }

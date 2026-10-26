@@ -1,18 +1,18 @@
 # nx-remote-cache
 
-A self-hosted [Nx](https://nx.dev) remote cache server, written in Rust and backed by Azure Blob Storage.
+A [Nx](https://nx.dev) remote cache server, written in Rust and backed by Azure Blob Storage, that runs **next to whoever uses it**: inside each CI job, started by [the nx-remote-cache action](https://github.com/graycoreio/github-actions/tree/main/nx-remote-cache), or on a developer's machine. There is no hosted service to run. Each instance talks to the shared Blob container with its caller's own Azure identity.
 
 It implements Nx's [remote cache OpenAPI spec](https://nx.dev/docs/kb/self-hosted-caching) (vendored in [`spec/`](spec/nx-remote-cache.openapi.json)). Nx 20.8+ ships its own client for that spec, so a workspace only needs two environment variables:
 
 ```sh
-export NX_SELF_HOSTED_REMOTE_CACHE_SERVER=https://<server>
+export NX_SELF_HOSTED_REMOTE_CACHE_SERVER=http://127.0.0.1:<port>
 export NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN=<token>
 ```
 
-It replaces `@nx/azure-cache` (and the other `@nx/*-cache` packages). Nx deprecated those because of [CVE-2025-36852 (CREEP)](https://nx.dev/docs/reference/deprecated/self-hosted-cache-packages): any job holding the single read/write credential could overwrite cache entries. This server prevents that in two ways:
+It replaces `@nx/azure-cache` (and the other `@nx/*-cache` packages). Nx deprecated those because of [CVE-2025-36852 (CREEP)](https://nx.dev/docs/reference/deprecated/self-hosted-cache-packages): any job holding the single read/write credential could overwrite cache entries. Here:
 
-- **Entries are never overwritten.** Every upload is an atomic create-if-absent; a second upload for the same hash gets `409`.
-- **Writing needs a separate, narrow permission.** By default it is only granted to pushes to the default branch, and Microsoft Entra enforces that, not this server.
+- **Writing needs a separate, narrow identity.** CI jobs exchange their GitHub OIDC token for one of two Azure identities. Only the writer can write to the container, and Azure only issues it to the subjects you list, normally pushes to the default branch. Pull requests get the reader.
+- **Entries aren't overwritten through the server.** Every upload is an atomic create-if-absent; a second upload for the same hash gets `409`. A job holding the writer identity could bypass the server, though; see [Security model](#security-model).
 
 ## Tested Nx versions
 
@@ -23,7 +23,7 @@ The server is verified end to end against real Nx clients:
 | 23.3.0 | Tested | All of the below |
 | 24.x | Not yet tested | |
 
-Full scenario list: write, then remote hit with byte-identical output; read-only token (upload skipped, run passes); invalid, expired and role-less tokens (run fails); Entra reader/writer identities; anonymous read; the `mint` exchange; a server URL with a trailing slash.
+Full scenario list: write, then remote hit with byte-identical output; read-only token (upload skipped, run passes, including large artifacts); invalid tokens (run fails); CI writer and reader identities through the action; a reader-identity server configured as writable (storage refuses the write, Nx skips it); a server URL with a trailing slash.
 
 ## Install
 
@@ -33,8 +33,8 @@ Every [release](https://github.com/graycoreio/nx-remote-cache/releases) after v0
   - `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` (glibc 2.34+: Ubuntu 22.04, Debian 12, RHEL 9 or newer),
   - `universal-apple-darwin` (one binary for Apple Silicon and Intel Macs).
 
-  Archives named `nx-remote-cache-mint-…` are built with `--features mint`. Each release has a `SHA256SUMS` file.
-- **Images:** `ghcr.io/graycoreio/nx-remote-cache:<version>` (and `:<version>-mint`) for `linux/amd64` and `linux/arm64`. The image contains the same binary as the Linux archives.
+  Each release has a `SHA256SUMS` file.
+- **Images:** `ghcr.io/graycoreio/nx-remote-cache:<version>` for `linux/amd64` and `linux/arm64`. The image contains the same binary as the Linux archives.
 
 ```sh
 version=<version>
@@ -50,49 +50,41 @@ The macOS binary isn't notarised. Downloaded with `gh` or `curl` it runs as is; 
 ## How it fits together
 
 ```
- Nx client ── Bearer token ──▶ nx-remote-cache ── managed identity / SAS / … ──▶ Azure Blob container
-                                 │
-                                 └─ verifies the token with one of the configured providers
+ CI job / dev machine
+   Nx ── static token ──▶ nx-remote-cache (127.0.0.1) ── the caller's Azure identity ──▶ Blob container
 ```
 
-**Client → server** auth providers are pluggable. List any of these under `[[auth.providers]]`:
-
-| Provider | Tokens | Use |
-|---|---|---|
-| `entra` (recommended) | Entra ID access tokens for the cache's app registration. Their `roles` claim maps to `Cache.Read` or `Cache.Write`. | CI (GitHub OIDC → Entra token via the bundled action) and developers (`az login`). The server holds no keys. |
-| `static` | Long-lived tokens, configured as SHA-256 hashes. | A shared read-only developer token, or a break-glass writer. |
-| `anonymous` | No token; `read` scope only. Off unless configured. | Fork PRs of public repositories, which get neither secrets nor OIDC tokens. It opens reads to **everyone** who can reach the server; see [Anonymous read](#anonymous-read). |
-| `github_mint` (`--features mint`) | The server exchanges GitHub OIDC tokens at `POST /v1/token/github` for HS256 tokens it signs itself, applying `repository_id` / `event_name` / `ref` rules. | Running without Entra. Not compiled in by default, because the server then owns signing keys. |
+**Client → server:** static tokens (`[[auth.providers]] type = "static"`), configured as SHA-256 hashes. Whoever starts the server makes one up and hands it to Nx: the action generates a random token per job, the dev compose setup uses a well-known one on `127.0.0.1`. Nobody else can reach the server, so the token only keeps other local processes out. Its scope (`read` or `read_write`) turns uploads from read-only callers into a clean `403`, which Nx skips.
 
 **Server → storage** uses exactly one explicitly configured mode. There is no credential chain guessing what to use.
 
 | Where it runs | `storage.auth.mode` |
 |---|---|
-| Azure Container Apps / App Service / VM | `managed_identity` (optional `client_id` for a user-assigned identity) |
+| A CI job (the action) | `workload_identity`: the job's GitHub OIDC token, exchanged for the writer or reader identity |
+| Docker on a dev machine | `managed_identity` through the `az` sidecar ([Local instance](#local-instance-binary-or-docker)), or `sas`: [`scripts/dev-sas.sh`](scripts/dev-sas.sh) prints a short-lived user-delegation SAS (needs Storage Blob Delegator on the account, which `local.bicep` grants its developer groups) |
 | The binary or `cargo run` on a dev machine | `developer_tools`: your `az login` |
-| Docker on a dev machine | `sas`: [`scripts/dev-sas.sh`](scripts/dev-sas.sh) prints a short-lived user-delegation SAS |
-| Elsewhere | `client_secret` (a service principal) or `workload_identity` |
+| Elsewhere | `client_secret` (a service principal) |
 | Azurite | `sas` with `endpoint = "http://…:10000/devstoreaccount1"` |
 
-The identity needs **Storage Blob Data Contributor on the container only**. Shared keys and connection strings are deliberately not supported.
+The identity's role on the container (Storage Blob Data Reader or Contributor) decides what it can do. Shared keys and connection strings are deliberately not supported.
 
 ### Behaviour worth knowing
 
-- **Any rejected token fails the Nx run.** Nx treats a `401` from the cache as fatal, even after every task succeeded. That includes expired tokens, deliberately: stale CI credentials should be noticed, not turn into silently skipped cache writes. The CI tokens the action fetches (for the writer/reader managed identities) were observed to last about 24 hours, so expiry within a job is unlikely. Developer tokens from `az account get-access-token` last 60–90 minutes; fetch a new one when it expires. A read-only token's `403` on upload is *not* fatal; Nx just skips the upload.
+- **Any rejected token fails the Nx run.** Nx treats a `401` from the cache as fatal, even after every task succeeded, so a wrong token shows up immediately. A read-only token's `403` on upload is *not* fatal; Nx just skips the upload. Rejected uploads read the rest of the body first, so Nx sees that `403` rather than a broken connection.
 - **Uploads stream.** Large uploads are staged in 8 MiB blocks and committed with `If-None-Match: *`. Each upload uses about 30 MB; each download about 90 MB, regardless of artifact size.
-- **Provenance is recorded.** Every blob carries metadata on who wrote it: provider, subject, client id, or the GitHub repository, event, ref and run.
-- **Startup fails fast.** The server checks storage access and OpenID discovery at startup and exits with an explanation (missing container, missing role assignment, expired SAS, …) instead of serving cache misses.
-- `/health` is liveness (no dependencies); `/ready` re-checks storage.
+- **Provenance is recorded.** Every blob carries the name of the static token that wrote it (`ci-job` for the action, `dev-<username>` for the dev compose setup).
+- **Startup fails fast.** The server checks storage access at startup and exits with an explanation (missing container, missing role assignment, expired SAS, …) instead of serving cache misses.
+- **`/health` answers once the server is usable.** The storage check happens before it starts listening, and it exits instead if storage fails, so there's no separate readiness probe.
 
 ## Configuration
 
-The server reads one TOML document, assembled from up to three sources (later ones win):
+The server reads one TOML document, assembled from up to three sources (later ones win, and all of them win over the `NX_CACHE_DEFAULT_LISTEN` default):
 
 1. **A file:** `config.toml` in the working directory, or `--config <path>`. The default file is optional when another source supplies the config; a path given with `--config` must exist.
-2. **Inline TOML** in the `NX_CACHE_CONFIG_TOML` environment variable. Handy where mounting a file is awkward; this is how the Bicep deployment passes its config.
-3. **Per-key overrides** `NX_CACHE__<SECTION>__<KEY>`, e.g. `NX_CACHE__SERVER__LISTEN=0.0.0.0:8080` or `NX_CACHE__STORAGE__CONTAINER=nx-cache-v2`. These work for single values. Lists such as `[[auth.providers]]` can only be set in the file or the inline TOML.
+2. **Inline TOML** in the `NX_CACHE_CONFIG_TOML` environment variable. Handy where mounting a file is awkward; this is how the action passes its config.
+3. **Per-key overrides** `NX_CACHE__<SECTION>__<KEY>`, e.g. `NX_CACHE__SERVER__LISTEN=127.0.0.1:8080` or `NX_CACHE__STORAGE__CONTAINER=nx-cache-v2`. These work for single values. Lists such as `[[auth.providers]]` can only be set in the file or the inline TOML.
 
-Config never contains secrets: SAS tokens, client secrets and mint keys are read from environment variables that the config *names*. Static tokens are stored as SHA-256 hashes.
+Config never contains secrets: SAS tokens and client secrets are read from environment variables that the config *names*. Static tokens are stored as SHA-256 hashes.
 
 ### Where the config goes
 
@@ -101,9 +93,9 @@ Config never contains secrets: SAS tokens, client secrets and mint keys are read
 | `cargo run` / the binary | `./config.toml` in the working directory, or `--config <path>` |
 | Docker image | Mount it at `/etc/nx-remote-cache/config.toml` (the image's working directory), or pass `NX_CACHE_CONFIG_TOML` |
 | `docker compose` (this repo) | [`config/local.toml`](config/local.toml), mounted as above |
-| Bicep deployment | Generated from the deployment parameters; see [Configuration in a deployment](#configuration-in-a-deployment) |
+| The action | Generated per job and passed as `NX_CACHE_CONFIG_TOML` |
 
-Examples: [`config/local.toml`](config/local.toml) (Azurite, well-known local tokens) and [`config/azure.example.toml`](config/azure.example.toml) (Container Apps + Entra).
+Examples: [`config/local.toml`](config/local.toml) (Azurite, well-known local tokens) and [`config/developer.example.toml`](config/developer.example.toml) (your `az login`, real storage).
 
 ```sh
 nx-remote-cache generate-token        # new random static token + the sha256 to put in config
@@ -118,7 +110,7 @@ Unknown keys are rejected at startup, so a typo fails loudly rather than being i
 
 | Key | Default | |
 |---|---|---|
-| `listen` | `0.0.0.0:3000` | Address and port |
+| `listen` | `127.0.0.1:3000` | Address and port. `NX_CACHE_DEFAULT_LISTEN` replaces this default without overriding an explicit `listen`; the image sets it to `0.0.0.0:3000`, so publish the port on the host's loopback: `-p 127.0.0.1:3000:3000` |
 | `max_artifact_bytes` | `2147483648` (2 GiB) | Larger uploads get `413` |
 | `json_logs` | `false` | JSON log lines, for log aggregation |
 
@@ -138,20 +130,17 @@ Log verbosity follows `RUST_LOG` (default `info`).
 
 | `auth.mode` | Other keys | |
 |---|---|---|
-| `managed_identity` | `client_id` (omit for system-assigned) | Azure Container Apps / App Service / VMs |
-| `workload_identity` | `tenant_id`, `client_id` (both default to `AZURE_TENANT_ID` / `AZURE_CLIENT_ID`) | AKS-style federation via `AZURE_FEDERATED_TOKEN_FILE` |
+| `managed_identity` | `client_id` (omit for system-assigned) | An Azure managed-identity endpoint, or the dev compose sidecar that emulates one |
+| `workload_identity` | `tenant_id`, `client_id` (both default to `AZURE_TENANT_ID` / `AZURE_CLIENT_ID`) | Federation via `AZURE_FEDERATED_TOKEN_FILE`; the action uses it with the job's GitHub OIDC token |
 | `client_secret` | `tenant_id`, `client_id`, `client_secret_env` (default `AZURE_CLIENT_SECRET`) | A service principal |
 | `developer_tools` | — | Your `az login` / `azd auth login` |
 | `sas` | `sas_token_env` (default `AZURE_STORAGE_SAS_TOKEN`) | The only mode that works over plain `http` (Azurite) |
 
-**`[[auth.providers]]`**: one table per provider, tried in order. At least one is required.
+**`[[auth.providers]]`**: at least one is required.
 
 | `type` | Keys |
 |---|---|
-| `entra` | `tenant_id`; `audiences` (the API app registration's client id); `read_role` (default `Cache.Read`); `write_role` (default `Cache.Write`); `authority` (default `https://login.microsoftonline.com`) |
-| `static` | `tokens = [{ name, sha256, scope }]`, where `scope` is `read` or `read_write` |
-| `anonymous` | `scope = "read"` (the only scope allowed) |
-| `github_mint` (`--features mint`) | `github_audience`; `signing_keys = [{ kid, secret_env }]` (first signs, all verify; secrets at least 32 bytes); `rules = [{ repository_id, event_name?, ref?, scope }]` (first match wins); `ttl` (default `2h`); `issuer` (default `nx-remote-cache`) |
+| `static` | `tokens = [{ name, sha256, scope }]`, where `scope` is `read` or `read_write`. `name` is recorded on everything the token writes |
 
 ## Local development
 
@@ -167,83 +156,59 @@ Tests:
 
 ```sh
 cargo test                     # unit, HTTP API, spec conformance
-scripts/azurite-test.sh        # everything, including the Azure store against Azurite and the mint feature
+scripts/azurite-test.sh        # everything, including the Azure store against Azurite
 ```
 
-[`.github/workflows/e2e.yml`](.github/workflows/e2e.yml) runs the whole flow against a deployed server from GitHub (writer on `main`, reader on PRs). It doubles as a worked example of a consumer workflow; it needs the `NX_CACHE_E2E_*` repository variables listed in its header.
+[`.github/workflows/e2e.yml`](.github/workflows/e2e.yml) runs the whole flow through the action from GitHub, with the server built from the commit (writer on `main`, reader on PRs). It doubles as a worked example of a consumer workflow; it needs the `NX_CACHE_E2E_*` repository variables listed in its header.
 
 ## Deploying to Azure
 
-There are two ways to run it in CI:
+[`deploy/local.bicep`](deploy/local.bicep) creates what server instances need, wherever they run:
 
-| | Hosted server ([`hosted.bicep`](deploy/hosted.bicep)) | Local instances ([`local.bicep`](deploy/local.bicep)) |
-|---|---|---|
-| What runs where | A Container App; CI jobs call it over HTTPS | [the nx-remote-cache action](https://github.com/graycoreio/github-actions/tree/main/nx-remote-cache) with `mode: local` starts the server in the job, on `127.0.0.1` |
-| Azure resources | Container App, logs workspace, Entra app registration, storage, 3 identities | Storage and 2 identities |
-| Who decides read/write | The server, from the Entra token's `Cache.Read` / `Cache.Write` role | Azure Storage, from the identity's role on the container (Data Reader / Data Contributor) |
-| Storage credential | Only the server holds one | On the CI runner, for the job's identity |
-| No-overwrite (`409`) | Guaranteed: nothing else can write | Applies to everything through the server; a job holding the writer identity could bypass it |
-| Developer reads (`az login`) | Yes | No |
-| Runners | Any | Linux (Docker) |
+- storage: either a **new** account (`createStorageAccount = true`: no shared keys, no public access, TLS 1.2 or later), or an **existing** one, in the same or another resource group (`storageResourceGroup`). Either way it adds the cache container (unless `createContainer = false`) and an optional lifecycle (expiry) rule;
+- two CI managed identities with GitHub federated credentials: the writer gets **Storage Blob Data Contributor** on the container, the reader **Storage Blob Data Reader**;
+- optionally, the same roles for developer groups (`readerGroupObjectIds` / `writerGroupObjectIds`), plus Storage Blob Delegator on the account so they can sign user-delegation SAS tokens.
 
-The hosted server is the stronger setup. The in-job server avoids hosting anything, and since only jobs matching the writer's federated credentials (normally default-branch pushes) can obtain write access at all, it still closes the CREEP hole.
-
-### Hosted server
-
-[`deploy/hosted.bicep`](deploy/hosted.bicep) creates:
-
-- the `nx-cache` app registration, with v2 tokens and the `Cache.Read` / `Cache.Write` roles;
-- two CI managed identities (writer, reader) with GitHub federated credentials, each holding one role;
-- storage: either a **new** account (`createStorageAccount = true`: no shared keys, no public access, TLS 1.2 or later), or an **existing** one, in the same or another resource group (`storageResourceGroup`). Either way it adds the cache container and an optional lifecycle (expiry) rule;
-- a server identity with Storage Blob Data Contributor on the container;
-- the Container App: scale-to-zero, health/readiness probes, and config passed inline.
+Deploy it as a **deployment stack**, so that removing a subject or group from the parameters also deletes its credential or role assignment:
 
 ```sh
-az deployment group create -g <resource group> -f deploy/hosted.bicep -p deploy/hosted.example.bicepparam
+az stack group create -n <stack name> -g <resource group> -f deploy/local.bicep \
+  -p storageAccountName=<account> writerSubjects='["<subject>"]' readerSubjects='["<subject>"]' \
+  --action-on-unmanage deleteResources --deny-settings-mode none --yes
 ```
 
-Read the parameter descriptions before deploying, in particular:
+Its outputs (`tenantId`, `storageAccount`, `storageContainer`, `writerClientId`, `readerClientId`) are the action's inputs. Read the parameter descriptions before deploying, in particular:
 
 - **`writerSubjects` / `readerSubjects`** are exact-match GitHub OIDC subjects (no wildcards). See [Building the subjects](#building-the-subjects) for their format, which differs between repositories.
-- **`namePrefix`** also names the Entra app registration, which must be unique in the tenant. Give each deployment its own prefix.
-- **`allowAnonymousRead`** (default `false`) opens reads to everyone; see [Anonymous read](#anonymous-read).
 - **`manageLifecyclePolicy`** replaces the storage account's *entire* lifecycle policy. Leave it off for a shared existing account that has rules of its own.
-- With an existing account in another resource group, the deploying identity also needs rights to create the container and the role assignment there.
-- The deploying identity needs Entra rights to create app registrations and grant app roles.
-- The image must be pullable by Container Apps. Make the GHCR package public, or add registry credentials.
+- With an existing account in another resource group, the deploying identity also needs rights to create the container and the role assignments there.
 
-### Local instances
+### Stacks and what they delete
 
-[`deploy/local.bicep`](deploy/local.bicep) is for server instances that run next to whoever uses them: inside a CI job (the action's `mode: local`) or on a developer's machine. It creates only the storage (new or existing account, as above) and the two CI identities. The writer gets **Storage Blob Data Contributor** on the container and the reader **Storage Blob Data Reader**:
+- **Redeploy with the same stack name** to change the parameters. The stack deletes whatever the template no longer declares: credentials of removed subjects, role assignments of removed groups.
+- **That includes storage the stack created:** the stack owns a storage account it created and, unless `createContainer = false`, the container. Switching either off, renaming the container or deleting the stack deletes them, and the cache with them. An existing account (`createStorageAccount = false`) or container (`createContainer = false`) is only referred to, never managed.
+- **To hand over something the stack already owns**, e.g. a container that turns out to be shared, redeploy once with `createContainer = false` and `--action-on-unmanage detachAll`. The stack then stops managing it without deleting it. Later deployments can go back to `deleteResources`.
+- **Several deployments can share a container**, as long as at most one owns it (the others use `createContainer = false`) and **each has its own identities** (a different `namePrefix`): each stack deletes what isn't in its own parameters.
+- **Deployments made before credentials were named after their subjects** have credentials named `github-0`, `github-1`, …. Redeploying them fails, because the renamed credentials repeat the same subjects. Delete the old ones first (`az identity federated-credential delete -g <rg> --identity-name <prefix>-ci-<writer|reader> -n github-<n> --yes`), or deploy with a new `namePrefix`.
 
-```sh
-az deployment group create -g <resource group> -f deploy/local.bicep \
-  -p storageAccountName=<account> writerSubjects='["<subject>"]' readerSubjects='["<subject>"]'
-```
+### Security model
 
-Its outputs (`tenantId`, `storageAccount`, `storageContainer`, `writerClientId`, `readerClientId`) are the inputs of the action's `mode: local`. The same subject rules apply; see [Building the subjects](#building-the-subjects). Both templates can share one set of identities and one container, as the test deployment does.
+The server and its config run on the caller's machine, so they are **not** the security boundary. Azure is:
 
-### Anonymous read
+- **Who can write** is decided by the identities' roles on the container and by which GitHub subjects can obtain the writer identity (its federated credentials). Pull requests only ever get the reader, so they can't write at all, not even through a server configured as writable: storage refuses, the server answers `403`, and Nx skips the upload.
+- **No-overwrite (`409`) applies to everything that goes through the server.** But a job holding the writer identity also holds a storage credential that can overwrite or delete blobs directly. If such a job is compromised (a malicious dependency in a default-branch build, say), it could replace existing entries. Keep the writer subjects to trusted branches and the writer groups small.
 
-The `anonymous` provider (`allowAnonymousRead` in the Bicep) lets requests **without any token** read the cache. That applies to anyone who can reach the server URL, not only CI:
+**Possible mitigation: immutable (WORM) storage.** A container-level time-based retention policy makes Azure itself refuse overwrites and deletes for the retention period, whoever asks, so the writer identity can't replace entries either. Tested against this server on a real account: uploads (including large, block-staged ones) still succeed, a repeated upload still gets `409`, and direct overwrites and deletes fail with `BlobImmutableDueToPolicy`. Not enabled here, because:
 
-- **Read only.** Anonymous requests get `403` on uploads, and the server refuses to start if anonymous is configured with any scope but `read`. There is no listing endpoint, so a caller needs an entry's hash. Hashes are not guessable, but they can appear in Nx output, e.g. verbose CI logs.
-- **What becomes readable:** cached build outputs and each task's terminal output. For a public repository these are mostly derived from public source, but terminal output contains whatever the build printed.
-- **Cost:** downloads are Azure egress you pay for, and there is no caller to rate-limit.
+- **Entries would no longer expire.** Azure's lifecycle management [can't delete any blob in an immutable container](https://learn.microsoft.com/en-us/azure/storage/blobs/lifecycle-management-overview), so something else would have to delete entries once their retention ends (allowed then; overwriting stays forbidden).
+- **Only container-level WORM helps.** With version-level WORM an overwrite creates a new current version, which is what the server serves.
+- **A locked policy can't be removed or shortened**, and blocks deleting the container while it holds protected blobs. An unlocked policy already stops the CI identities (removing it needs management rights they don't have) and stays reversible.
 
-It stays off unless you turn it on. Without it, jobs that can't get a token (fork PRs) simply build without the remote cache; the action handles that by leaving the cache off.
-
-### Configuration in a deployment
-
-There is no config file to prepare. The template builds the TOML from its parameters (storage account and container, the server identity, the Entra app, `devReadTokenSha256`, `allowAnonymousRead`) and stores it on the Container App as the `NX_CACHE_CONFIG_TOML` environment variable.
-
-- **To change it, change the parameters and redeploy.** Each change creates a new revision of the app, which restarts it.
-- **For settings without a parameter** (e.g. `max_artifact_bytes`, `download_parallelism`, `prefix`), add per-key overrides with the `extraEnv` parameter: `[{ name: 'NX_CACHE__SERVER__MAX_ARTIFACT_BYTES', value: '4294967296' }]`.
-- **You can inspect or hand-edit the variables** in the portal (Container App → Containers → Environment variables) or with `az containerapp update --set-env-vars`, e.g. while debugging. The next deployment replaces the container's whole environment and discards hand edits.
+See [immutable storage for blobs](https://learn.microsoft.com/en-us/azure/storage/blobs/immutable-storage-overview).
 
 ## Using it from GitHub Actions
 
-Use the [nx-remote-cache action](https://github.com/graycoreio/github-actions/tree/main/nx-remote-cache) from graycoreio/github-actions. It exchanges the job's GitHub OIDC token for an Entra token and exports both Nx variables:
+Use the [nx-remote-cache action](https://github.com/graycoreio/github-actions/tree/main/nx-remote-cache) from graycoreio/github-actions. It downloads the server release, starts it in the job with the writer or reader identity, and points Nx at it:
 
 ```yaml
 permissions:
@@ -253,52 +218,28 @@ permissions:
 steps:
   - uses: graycoreio/github-actions/nx-remote-cache@main
     with:
-      server-url: https://<server>
       tenant-id: <tenantId output>
       writer-client-id: <writerClientId output>
       reader-client-id: <readerClientId output>
-      api-scope: <apiScope output>
+      storage-account: <storageAccount output>
+      storage-container: <storageContainer output>
   - run: npx nx affected -t build test lint
 ```
 
-That's the hosted server. For a local instance inside each CI job, use `mode: local` with `local.bicep`'s outputs (`storage-account`, `storage-container` instead of `server-url`, `api-scope`). The action's README covers both modes, the inputs, fork PRs and anonymous read, error messages, and using `continue-on-error` for jobs that can't get a token.
-
-Developers use their own Azure identity rather than CI's; see [Developer access](#developer-access).
+The action's README covers its inputs, fork PRs (no OIDC token, so no remote cache), error messages, and using `continue-on-error` for jobs that can't get a token.
 
 ## Developer access
 
-Developers authenticate as themselves (`az login`), never as CI. What decides whether they can write depends on **where the server instance they talk to runs**:
-
-| Instance | Where | Read vs write decided by | Granted with |
-|---|---|---|---|
-| [Hosted server](#hosted-server-1) | Shared, in Azure (`hosted.bicep`) | The developer's **app role**: `Cache.Read` / `Cache.Write` | `hosted.bicep`: `readerGroupObjectIds` / `writerGroupObjectIds` |
-| [Local instance](#local-instance-binary-or-docker) | The developer's machine (binary or Docker) | The developer's **storage role** on the container: Storage Blob Data Reader / Contributor | `local.bicep`: `readerGroupObjectIds` / `writerGroupObjectIds` |
-
-CI is unaffected by any of this: pull requests only ever get the reader identity.
-
-> [!WARNING]
-> Entries a developer writes are served to every CI run with the same task hash. A laptop's builds are less reproducible than CI's (local state, uncommitted changes, tool versions), and a compromised laptop could poison the cache. Keep the writer groups small. Every blob records who wrote it in its metadata (the user's object id via the hosted server; for a local instance, the static token's name: `dev-<username>` with Docker, whatever you configure for the binary), so a bad entry can be traced.
-
-### Hosted server
-
-The groups get the app roles `Cache.Read` or `Cache.Write`. Developers fetch a token for the cache API, which carries their roles (via group membership), and point Nx straight at the server:
-
-```sh
-export NX_SELF_HOSTED_REMOTE_CACHE_SERVER=https://<server>
-export NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN=$(az account get-access-token --scope <devScope output> --query accessToken -o tsv)
-```
-
-Anyone in neither group gets `AADSTS50105`, because the app requires role assignment. These tokens last 60–90 minutes; fetch a new one when Nx reports `Unauthorized`.
-
-### Local instance (binary or Docker)
-
-A developer runs the server on their own machine, talking to the shared storage as themselves. What they can do is their own role on the container, enforced by Azure Storage:
+Developers run their own instance, talking to the shared storage as themselves (`az login`), never as CI. What they can do is their own role on the container, enforced by Azure Storage:
 - **Storage Blob Data Contributor:** read and write.
 - **Storage Blob Data Reader:** read only, with the same setup: storage refuses their uploads, the server answers `403`, and Nx skips them.
 
-This works alongside either deployment, as long as the developer has a storage role:
-- **`local.bicep`** grants it through its `readerGroupObjectIds` / `writerGroupObjectIds`.
-- **A hosted-only deployment** (`hosted.bicep`) grants app roles, which a local instance doesn't use. There, give the groups a storage role on the container separately: deploy `local.bicep`'s group parameters too (which also gives the CI identities storage roles), or add the role assignment by hand.
+`local.bicep` grants these through `readerGroupObjectIds` / `writerGroupObjectIds`, and also gives those groups Storage Blob Delegator on the account. That role only lets them sign user-delegation SAS tokens (`scripts/dev-sas.sh`); a SAS never allows more than the signer's own role on the container.
+
+> [!WARNING]
+> Entries a developer writes are served to every CI run with the same task hash. A laptop's builds are less reproducible than CI's (local state, uncommitted changes, tool versions), and a compromised laptop could poison the cache. Keep the writer groups small. Every blob records the static token's name (`dev-<username>` with Docker, whatever you configure for the binary), so a bad entry can be traced.
+
+### Local instance (binary or Docker)
 
 Two ways to run it:
 
@@ -324,16 +265,16 @@ The token endpoint also works outside Docker: run `IDENTITY_HEADER=<secret> pyth
 1. **Use Nx's built-in client.** It exists from Nx 20.8 onwards, and this server is tested with the versions in [Tested Nx versions](#tested-nx-versions).
 2. **Uninstall the old cache package, and the `@nx/powerpack-*-cache` equivalents.** Nx looks for those packages *before* it reads `NX_SELF_HOSTED_REMOTE_CACHE_SERVER`. If one is installed and finds its key (`NX_KEY`), Nx uses it and silently ignores this server. Also remove its config from `nx.json` (e.g. the `azure` block); `NX_KEY` / `nx register` are no longer needed. Nx Cloud (`nxCloudId` / `nxCloudAccessToken` in `nx.json`) likewise takes precedence over this server.
 3. **Start from an empty container.** Entries written by `@nx/azure-cache` use a different archive layout from Nx's built-in client, which rejects them ("Invalid exit code in cache artifact"), and a rejected read fails the run. They were also writable by every job holding the shared credential, so they should not be trusted. Expect one round of cold builds; the first default-branch push repopulates the cache.
-4. **Deploy** either the hosted server or the local setup (see [Deploying to Azure](#deploying-to-azure)), with subjects for every workflow trigger that will run the action (next section).
+4. **Deploy** `local.bicep` (see [Deploying to Azure](#deploying-to-azure)), with subjects for every workflow trigger that will run the action (next section).
 5. **Update every workflow that touched the cache:**
    - Replace the old setup (connection-string env vars, cache-mode variables) with the [nx-remote-cache action](https://github.com/graycoreio/github-actions/tree/main/nx-remote-cache).
    - Grant `id-token: write` to each job that runs it. In a reusable workflow (`workflow_call`), the token is minted in the *caller's* context: if the caller declares `permissions`, it has to grant `id-token: write` too.
-   - Put the deployment outputs (server URL, tenant id, client ids, API scope) in repository variables. None of them are secrets.
+   - Put the deployment outputs (tenant id, client ids, storage account and container) in repository variables. None of them are secrets.
 6. **Clean up after the switch:** delete the old secrets (connection strings, `NX_KEY`) and the old container. If nothing else uses the account's keys, rotate them and disable shared-key access.
 
 ### Building the subjects
 
-GitHub puts the trigger into the OIDC token's `sub`, and Entra matches it exactly, with no wildcards. First get the repository's subject prefix:
+GitHub puts the trigger into the OIDC token's `sub`, and Azure matches it exactly against the identities' federated credentials, with no wildcards. First get the repository's subject prefix:
 
 ```sh
 gh api repos/OWNER/REPO/actions/oidc/customization/sub --jq .sub_claim_prefix
@@ -351,18 +292,17 @@ Older repositories use the classic `repo:OWNER/REPO`. Repositories created after
 
 A trigger with no matching subject can't get a token. For those jobs (tags and releases in particular), choose one of:
 - skip the action in that job, so it runs without a remote cache;
-- add `continue-on-error: true` to the action step, which does the same automatically;
-- read with a static read-only token, or anonymously if the server allows it (see [Anonymous read](#anonymous-read)) with `anonymous-read: true` on the action.
+- add `continue-on-error: true` to the action step, which does the same automatically.
 
-The `access` input picks between the two identities (`auto`: writer only for a push to the default branch). Whatever it asks for, Entra only issues the writer token to subjects in `writerSubjects`.
+The `access` input picks between the two identities (`auto`: writer only for a push to the default branch). Whatever it asks for, Azure only issues the writer identity's token to subjects in `writerSubjects`.
 
 ## Layout
 
 ```
 src/
-  auth/        Authenticator trait + AuthChain; entra, static_token, anonymous, mint/ (feature)
+  auth/        Authenticator trait + AuthChain; static_token
   store/       CacheStore trait (get / put_if_absent / ready); memory, azure/
-  http/        axum routes: /v1/cache/{hash}, /health, /ready, /v1/token/github (mint)
+  http/        axum routes: /v1/cache/{hash}, /health
   config.rs    TOML + env config
 spec/          Nx OpenAPI spec (tests/spec.rs fails if it changes without the server following)
 deploy/        Bicep for Azure
