@@ -1,25 +1,11 @@
-// Storage for nx-remote-cache: a new or existing account, the cache container, data-plane role
-// assignments on that container only, and an optional lifecycle (expiry) rule.
+// Storage for nx-remote-cache: data-plane role assignments on the cache container only, and an
+// optional lifecycle (expiry) rule. The account and container exist already or are created by
+// storage-create.bicep.
 // Deployed as a module by local.bicep, so the account may live in another resource group.
 
-@description('Storage account name (3-24 lowercase letters and digits, globally unique if created).')
-@minLength(3)
-@maxLength(24)
 param accountName string
 
-@description('Create the account. If false, an existing account with this name is used.')
-param createAccount bool
-
-param location string = resourceGroup().location
-
-@description('SKU when creating the account. Cache entries are reproducible, so LRS is enough.')
-param sku string = 'Standard_LRS'
-
 param containerName string
-
-@description('''Create the container. If false, an existing container with this name is used, e.g. one that
-belongs to another deployment: a deployment stack then doesn't manage (or delete) it.''')
-param createContainer bool = true
 
 @description('Identities to grant access to the container: `contributor` (read and write) or `reader`.')
 param access blobAccess[]
@@ -45,23 +31,7 @@ var roleIds = {
   reader: '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1' // Storage Blob Data Reader
 }
 
-resource created 'Microsoft.Storage/storageAccounts@2023-05-01' = if (createAccount) {
-  name: accountName
-  location: location
-  kind: 'StorageV2'
-  sku: { name: sku }
-  properties: {
-    // The server only ever uses Entra identities or user-delegation SAS: no account keys.
-    allowSharedKeyAccess: false
-    allowBlobPublicAccess: false
-    minimumTlsVersion: 'TLS1_2'
-    supportsHttpsTrafficOnly: true
-    defaultToOAuthAuthentication: true
-    accessTier: 'Hot'
-  }
-}
-
-// Refers to the account whether it was created above or already existed.
+// Created by storage-create.bicep or already there.
 resource account 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
   name: accountName
 }
@@ -71,16 +41,7 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01'
   name: 'default'
 }
 
-resource createdContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (createContainer) {
-  parent: blobService
-  name: containerName
-  dependsOn: [created]
-  properties: {
-    publicAccess: 'None'
-  }
-}
-
-// Refers to the container whether it was created above or already existed.
+// Created by storage-create.bicep or already there.
 resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' existing = {
   parent: blobService
   name: containerName
@@ -90,7 +51,6 @@ resource blobAccessAssignments 'Microsoft.Authorization/roleAssignments@2022-04-
   for grant in access: {
     scope: container
     name: guid(container.id, grant.principalId, roleIds[grant.role])
-    dependsOn: [createdContainer]
     properties: {
       roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleIds[grant.role])
       principalId: grant.principalId
@@ -105,7 +65,6 @@ resource delegatorAssignments 'Microsoft.Authorization/roleAssignments@2022-04-0
   for groupId in delegatorGroupObjectIds: {
     scope: account
     name: guid(account.id, groupId, delegatorRoleId)
-    dependsOn: [created]
     properties: {
       roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', delegatorRoleId)
       principalId: groupId
@@ -118,7 +77,6 @@ resource delegatorAssignments 'Microsoft.Authorization/roleAssignments@2022-04-0
 resource lifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = if (manageLifecyclePolicy) {
   parent: account
   name: 'default'
-  dependsOn: [created]
   properties: {
     policy: {
       rules: [
