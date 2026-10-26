@@ -71,8 +71,8 @@ module identities 'identities.bicep' = {
   }
 }
 
-module storage 'storage.bicep' = {
-  name: '${namePrefix}-storage'
+module storageCreate 'storage-create.bicep' = {
+  name: '${namePrefix}-storage-create'
   scope: resourceGroup(storageResourceGroup)
   params: {
     accountName: storageAccountName
@@ -80,6 +80,16 @@ module storage 'storage.bicep' = {
     location: location
     containerName: containerName
     createContainer: createContainer
+  }
+}
+
+module storage 'storage.bicep' = {
+  name: '${namePrefix}-storage'
+  scope: resourceGroup(storageResourceGroup)
+  dependsOn: [storageCreate]
+  params: {
+    accountName: storageAccountName
+    containerName: containerName
     access: concat(
       [
         { principalId: identities.outputs.writerPrincipalId, role: 'contributor' }
