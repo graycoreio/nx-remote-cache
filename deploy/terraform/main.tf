@@ -99,18 +99,6 @@ resource "azurerm_role_assignment" "blob_access" {
   depends_on = [azurerm_storage_container.this]
 }
 
-# Lets developers sign a user-delegation SAS (scripts/dev-sas.sh) for their own role. Delegation
-# keys can only be granted at account scope; a SAS signed with one never allows more than the
-# signer's own role on the container.
-resource "azurerm_role_assignment" "delegator" {
-  for_each = setunion(var.reader_group_object_ids, var.writer_group_object_ids)
-
-  scope                = azurerm_storage_account.this.id
-  role_definition_name = "Storage Blob Delegator"
-  principal_id         = each.value
-  principal_type       = "Group"
-}
-
 # An account has a single lifecycle policy document: writing it replaces any existing rules.
 resource "azurerm_storage_management_policy" "this" {
   count = var.manage_lifecycle_policy ? 1 : 0

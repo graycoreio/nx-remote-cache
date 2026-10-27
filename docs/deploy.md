@@ -7,7 +7,7 @@ It contains:
 - A new storage account.
 - A lifecycle rule that deletes cache entries `retention_days` after creation (30 by default). Turn it off with `manage_lifecycle_policy = false`.
 - Writer and reader managed identities for CI, with GitHub federated credentials.
-- Optionally, role assignments for developer groups. `writer_group_object_ids` and `reader_group_object_ids` get the same roles as the CI identities, plus Storage Blob Delegator on the account.
+- Optionally, role assignments for developer groups. `writer_group_object_ids` and `reader_group_object_ids` get the same roles as the CI identities.
 
 Use it from your own Terraform configuration, pinned to a release tag:
 
