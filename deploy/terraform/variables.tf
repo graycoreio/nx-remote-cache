@@ -51,11 +51,12 @@ variable "retention_days" {
 
 variable "manage_lifecycle_policy" {
   description = <<-EOT
-    Write the account's lifecycle management policy. WARNING: an account has a single policy
-    document, so this REPLACES any existing lifecycle rules on the account.
+    Delete cache entries retention_days after creation, through the account's lifecycle management
+    policy. An account has a single policy document, so this replaces any rules added outside the
+    module.
   EOT
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "writer_subjects" {

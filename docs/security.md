@@ -21,14 +21,12 @@ Write access depends on two things: the role each identity has on the container,
 
 The server won't overwrite an existing entry. Uploading a hash that's already in the cache returns `409`.
 
-That only applies to uploads through the server. The writer identity has write access to the container, so a job using it can overwrite or delete blobs by calling Azure directly. If one of those jobs is compromised, say by a malicious dependency in a default-branch build, it can replace cache entries.
+That only applies to uploads through the server. The writer identity has write access to the container, so a job using it can overwrite or delete blobs by calling Azure directly. If one of those jobs is compromised, say by a malicious dependency in a default-branch build, it can replace cache entries. If that trade-off doesn't work for you, look at [Nx Cloud](https://nx.dev/nx-cloud).
 
-Security here is a shared responsibility. This project gives you separate reader and writer identities, but you decide who gets the writer.
+Security here is a shared responsibility. This project gives you separate reader and writer identities, but you decide who gets the writer. 
 
 > [!IMPORTANT]
 > Only list trusted branches in the writer subjects, and keep the writer groups small.
-
-To block direct overwrites as well, you can make the container immutable. See [Immutable storage](deploy.md#immutable-storage).
 
 ## Developer writes
 
