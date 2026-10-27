@@ -76,7 +76,7 @@ export NX_SELF_HOSTED_REMOTE_CACHE_SERVER=http://127.0.0.1:3000
 export NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN=<token>
 ```
 
-To run it with Docker instead, see [Developer access](docs/developer-access.md).
+To run it with Docker instead, see [Usage](docs/usage.md).
 
 ## Features
 
@@ -92,7 +92,7 @@ To run it with Docker instead, see [Developer access](docs/developer-access.md).
 - [Configuration](docs/configuration.md)
 - [How it works](docs/how-it-works.md)
 - [Deploying to Azure](docs/deploy.md)
-- [Developer access](docs/developer-access.md)
+- [Usage](docs/usage.md)
 - [Security model](docs/security.md)
 - [Development](docs/development.md)
 
