@@ -1,26 +1,39 @@
 # Deploying to Azure
 
-[`deploy/local.bicep`](../deploy/local.bicep) creates:
+The Terraform module in [`deploy/terraform`](../deploy/terraform) creates:
 
-- **Storage:** a new account (`createStorageAccount = true`: no shared keys, no public access, TLS 1.2+) or an existing one (`storageResourceGroup` for another resource group). Either way it adds the container (unless `createContainer = false`) and an optional expiry rule.
+- **Storage:** a new account (no shared keys, no public access, TLS 1.2+), the cache container and an optional expiry rule. The account must not exist yet. Put it in another resource group with `storage_resource_group_name`.
 - **Two CI managed identities** with GitHub federated credentials. Writer: Storage Blob Data Contributor on the container. Reader: Storage Blob Data Reader.
-- **Developer groups** (optional): `readerGroupObjectIds` / `writerGroupObjectIds` get the same roles, plus Storage Blob Delegator on the account.
+- **Developer groups** (optional): `reader_group_object_ids` / `writer_group_object_ids` get the same roles, plus Storage Blob Delegator on the account.
 
-Deploy it as a deployment stack, so removing a subject or group also removes its credential or role assignment:
+Use it from your own Terraform configuration, pinned to a release tag:
 
-```sh
-az stack group create -n <stack name> -g <resource group> -f deploy/local.bicep \
-  -p storageAccountName=<account> writerSubjects='["<subject>"]' readerSubjects='["<subject>"]' \
-  --action-on-unmanage deleteResources --deny-settings-mode none --yes
+```hcl
+provider "azurerm" {
+  features {}
+}
+
+module "nx_remote_cache" {
+  source = "github.com/graycoreio/nx-remote-cache//deploy/terraform?ref=<tag>"
+
+  resource_group_name  = "<resource group>"
+  storage_account_name = "<account>"
+  writer_subjects      = ["<subject>"]
+  reader_subjects      = ["<subject>"]
+}
+
+output "nx_remote_cache" {
+  value = module.nx_remote_cache
+}
 ```
 
-The outputs (`tenantId`, `storageAccount`, `storageContainer`, `writerClientId`, `readerClientId`) are the action's inputs. None of them are secrets.
+Then run `terraform init` and `terraform apply`. The outputs (`tenant_id`, `storage_account`, `storage_container`, `writer_client_id`, `reader_client_id`) are the action's inputs. None of them are secrets.
 
 Before deploying:
 
-- `writerSubjects` / `readerSubjects` are exact-match OIDC subjects. See [Building the subjects](#building-the-subjects).
-- `manageLifecyclePolicy` replaces the account's entire lifecycle policy. Leave it off on a shared account.
-- An existing account in another resource group needs rights to create the container and role assignments there.
+- `writer_subjects` / `reader_subjects` are exact-match OIDC subjects. See [Building the subjects](#building-the-subjects).
+- The resource group must already exist.
+- If Azure rejects concurrent federated credential writes with `409`, apply with `-parallelism=1`.
 
 ## Building the subjects
 
@@ -42,21 +55,19 @@ Older repositories use `repo:OWNER/REPO`. Repositories created after 2026-07-15,
 
 A trigger with no matching subject cannot get a token. For those jobs, skip the action or add `continue-on-error: true` to the step.
 
-The action's `access` input picks the identity (`auto`: writer only on a push to the default branch). Azure only issues the writer token to subjects in `writerSubjects`.
+The action's `access` input picks the identity (`auto`: writer only on a push to the default branch). Azure only issues the writer token to subjects in `writer_subjects`.
 
-## Stacks and what they delete
+## What Terraform deletes
 
-- **Redeploy with the same stack name** to change parameters. The stack deletes whatever the template no longer declares.
-- **That includes storage the stack created.** Switching `createStorageAccount` or `createContainer` off, renaming the container or deleting the stack deletes them, and the cache with them. Existing resources are only referenced.
-- **To hand over something the stack owns**, redeploy once with `createContainer = false` and `--action-on-unmanage detachAll`.
-- **Several stacks can share a container** if only one owns it and each has its own `namePrefix`.
-- **Stacks deployed before credentials were named after their subjects** have `github-0`, `github-1`, … credentials and fail to redeploy. Delete them first (`az identity federated-credential delete -g <rg> --identity-name <prefix>-ci-<writer|reader> -n github-<n> --yes`) or use a new `namePrefix`.
+- **Removing a subject or group** from the variables removes its credential or role assignment on the next apply.
+- **The module owns the storage account and container.** Renaming either, or running `terraform destroy`, deletes them and the cache with them.
+- **`manage_lifecycle_policy`** writes the account's only lifecycle policy document, replacing any rules added outside the module.
 
 ## Immutable storage
 
 A time-based retention policy on the container makes Azure refuse to overwrite or delete any blob until its retention period ends, whatever identity asks. The server works with it: uploads succeed, repeated uploads still return `409`, and direct overwrites fail with `BlobImmutableDueToPolicy`.
 
-`local.bicep` doesn't set this up. To add it:
+The module doesn't set this up. To add it:
 
 ```sh
 az storage container immutability-policy create \

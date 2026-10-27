@@ -3,7 +3,7 @@
 # on a dev machine (`auth = { mode = "sas" }`). Signed with your own `az login` identity, so
 # no account keys are involved. You need a data role on the container (Contributor to write,
 # Reader to read; the SAS never allows more) and Storage Blob Delegator on the account, which
-# deploy/local.bicep grants its developer groups. Without it: AuthorizationPermissionMismatch.
+# deploy/terraform grants its developer groups. Without it: AuthorizationPermissionMismatch.
 #
 #   export AZURE_STORAGE_SAS_TOKEN=$(scripts/dev-sas.sh <account> <container> [days, max 7])
 set -euo pipefail

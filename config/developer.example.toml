@@ -1,8 +1,8 @@
 # A developer running the server locally against the shared cache storage, with their own
-# `az login` (a local instance; storage roles from deploy/local.bicep).
+# `az login` (a local instance; storage roles from deploy/terraform).
 #
-# What you can do is your Azure role on the container, granted through local.bicep's
-# readerGroupObjectIds / writerGroupObjectIds. The token scope below doesn't change that: with
+# What you can do is your Azure role on the container, granted through the Terraform
+# module's reader_group_object_ids / writer_group_object_ids. The token scope below doesn't change that: with
 # only the reader role, uploads are refused by storage and Nx simply skips them.
 #
 #   cp config/developer.example.toml config.toml   # then fill in the <values>

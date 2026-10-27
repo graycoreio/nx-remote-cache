@@ -38,7 +38,7 @@ It implements Nx's [remote cache spec](https://nx.dev/docs/kb/self-hosted-cachin
 
 ## Getting Started
 
-First, [deploy](docs/deploy.md) the storage container and the CI identities with `deploy/local.bicep`.
+First, [deploy](docs/deploy.md) the storage container and the CI identities with the [Terraform module](deploy/terraform).
 
 ### CI
 

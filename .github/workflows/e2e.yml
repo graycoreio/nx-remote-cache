@@ -1,5 +1,5 @@
 # End-to-end test through the nx-remote-cache action and a real Nx client, with the server built
-# from this commit running inside the job and using storage directly (deploy/local.bicep). The
+# from this commit running inside the job and using storage directly (deploy/terraform). The
 # action's home is graycoreio/github-actions/nx-remote-cache; until it is merged there, its build
 # is tested from graycoreio/github-actions/nx-remote-cache@feat/nx-remote-cache.
 #
@@ -9,7 +9,7 @@
 # federated credential on non-main branches, and asks for the reader identity on main.)
 #
 # Configure with repository variables (Settings → Secrets and variables → Actions → Variables),
-# from local.bicep's outputs. The job is skipped while they are unset:
+# from the Terraform module's outputs. The job is skipped while they are unset:
 #   NX_CACHE_E2E_TENANT_ID, NX_CACHE_E2E_STORAGE_ACCOUNT, NX_CACHE_E2E_STORAGE_CONTAINER,
 #   NX_CACHE_E2E_WRITER_CLIENT_ID, NX_CACHE_E2E_READER_CLIENT_ID
 #

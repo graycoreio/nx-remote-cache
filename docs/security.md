@@ -41,7 +41,7 @@ Developers connect to storage with their own Azure identity, so their role on th
 | Storage Blob Data Contributor | Read and write                                                |
 | Storage Blob Data Reader      | Read only. Uploads are rejected with `403`, and Nx skips them |
 
-`local.bicep` grants these roles to the groups in `readerGroupObjectIds` and `writerGroupObjectIds`. It also grants those groups Storage Blob Delegator, which lets them create short-lived SAS tokens with `scripts/dev-sas.sh`. A SAS token never gives more access than the developer's own role.
+The [Terraform module](../deploy/terraform) grants these roles to the groups in `reader_group_object_ids` and `writer_group_object_ids`. It also grants those groups Storage Blob Delegator, which lets them create short-lived SAS tokens with `scripts/dev-sas.sh`. A SAS token never gives more access than the developer's own role.
 
 > [!WARNING]
 > Consider giving no developers write access at all. Developers still get cache hits from CI, but their own builds won't be shared with each other, so local builds are slower. If that trade-off doesn't work for you, look at [Nx Cloud](https://nx.dev/nx-cloud).

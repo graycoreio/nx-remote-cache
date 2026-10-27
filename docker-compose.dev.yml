@@ -7,7 +7,7 @@
 #   server    nx-remote-cache in `managed_identity` mode, pointed at the sidecar.
 #
 # What you can do in the cache is your Azure role on the container (Storage Blob Data Reader or
-# Contributor, e.g. via local.bicep's readerGroupObjectIds / writerGroupObjectIds). Readers can use
+# Contributor, e.g. via the Terraform module's reader_group_object_ids / writer_group_object_ids). Readers can use
 # this file unchanged: storage refuses their uploads, and Nx skips them.
 #
 # Use it through scripts/dev-compose.sh, which on first use writes a random sidecar secret
