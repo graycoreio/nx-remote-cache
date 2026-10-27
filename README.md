@@ -28,16 +28,21 @@
 
 ## Purpose
 
-Nx deprecated `@nx/azure-cache` and the other `@nx/*-cache` packages after [CVE-2025-36852 (CREEP)](https://nx.dev/docs/reference/deprecated/self-hosted-cache-packages): every job shared one read/write credential, so a pull request could poison the cache for the default branch.
+You can use `nx-remote-cache` to replace `@nx/azure-cache`.
 
-We use `nx-remote-cache` to replace it. This project is a Rust implementation of Nx's OpenAPI spec specifically built around Azure Blob storage, authenticating via OIDC.
+Nx deprecated the `@nx/azure-cache` package after [CVE-2025-36852 (CREEP)](https://nx.dev/docs/reference/deprecated/self-hosted-cache-packages). They did this for a variety of reasons. Chiefly, their docs guided every job to share one read/write credential, potentially allowing pull requests to poison the cache for the default branch. Luckily, Azure has a authentication model that allows you to work around CREEP while still self-hosting your own cache.
 
-It implements Nx's [remote cache spec](https://nx.dev/docs/kb/self-hosted-caching) and is intended to run either inside each CI job or on each developer's machine, talking to Azure as its caller.
+This project is a Rust implementation of Nx's OpenAPI spec specifically built around [Azure Blob storage](https://azure.microsoft.com/en-us/products/storage/blobs), authenticating via OIDC.
+
+It implements Nx's [remote cache spec](https://nx.dev/docs/kb/self-hosted-caching) and is intended to run either inside each CI job or as a daemon on each developer's machine.
 
 ## Getting Started
 
-1. [Deploy](docs/deploy.md) the container and the CI identities with `deploy/local.bicep`
-2. Add the [nx-remote-cache action](https://github.com/graycoreio/github-actions/tree/main/nx-remote-cache) to your workflows:
+First, [deploy](docs/deploy.md) the storage container and the CI identities with `deploy/local.bicep`.
+
+### CI
+
+Add the [nx-remote-cache action](https://github.com/graycoreio/github-actions/tree/main/nx-remote-cache) to your workflows, using the deployment outputs:
 
 ```yaml
 permissions:
@@ -55,7 +60,23 @@ steps:
   - run: npx nx affected -t build test lint
 ```
 
-3. Optionally, give developers a [local instance](docs/developer-access.md)
+### Locally
+
+[Install](docs/install.md) the binary, copy [`config/developer.example.toml`](config/developer.example.toml) to `config.toml` and fill in the values, then:
+
+```sh
+az login
+nx-remote-cache
+```
+
+Point Nx at it with the token from your config:
+
+```sh
+export NX_SELF_HOSTED_REMOTE_CACHE_SERVER=http://127.0.0.1:3000
+export NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN=<token>
+```
+
+To run it with Docker instead, see [Developer access](docs/developer-access.md).
 
 ## Features
 
