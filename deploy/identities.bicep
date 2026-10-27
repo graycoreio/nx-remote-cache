@@ -16,7 +16,7 @@ var githubIssuer = 'https://token.actions.githubusercontent.com'
 // Named after the subject, not its position in the list: removing or reordering subjects then
 // leaves the other credentials alone. (Positional names retargeted them, and the duplicate
 // subject that left behind failed the deployment.) Removing a subject from the list does not
-// delete its credential by itself; see the README's "Revoking access".
+// delete its credential by itself; see docs/deploy.md, "Stacks and what they delete".
 func credentialName(subject string) string => 'github-${uniqueString(subject)}'
 
 resource writer 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
