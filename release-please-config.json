@@ -9,8 +9,20 @@
   "pull-request-title-pattern": "chore: release ${version}",
   "packages": {
     ".": {
-      "release-type": "rust",
-      "package-name": "nx-remote-cache"
+      "release-type": "simple",
+      "package-name": "nx-remote-cache",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "packages/server/Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value==='nx-remote-cache')].version"
+        }
+      ]
     }
   }
 }
