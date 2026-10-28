@@ -58,7 +58,7 @@ pub enum StoreError {
     #[error("request body error: {0}")]
     Body(io::Error),
     /// The storage credential may read but not write (e.g. a reader identity's role, or a
-    /// read-only SAS). The caller's request is fine; this identity just can't write.
+    /// read-only role). The caller's request is fine; this identity just can't write.
     #[error("storage refused the write: {0}")]
     WriteDenied(String),
     #[error("storage backend error: {0}")]

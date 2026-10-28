@@ -8,6 +8,8 @@ Start Azurite and the server with Docker Compose. The server listens on port 300
 docker compose up --build
 ```
 
+The Compose stack builds the server with the `azurite` Cargo feature. It adds a `sas` storage auth mode, which only works against Azurite; release builds don't include it.
+
 Then point Nx at it. Use `local-write-token` to read and write, or `local-read-token` to read only.
 
 ```sh
@@ -33,7 +35,7 @@ cargo test
 
 ### Integration
 
-To run everything, including the Azure storage tests against Azurite, use:
+To run everything, including the Azure storage tests against Azurite (built with the `azurite` feature), use:
 
 ```sh
 scripts/azurite-test.sh

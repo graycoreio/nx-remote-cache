@@ -41,4 +41,4 @@ Uploads and downloads stream. Large uploads are sent to Azure in 8 MiB blocks an
 
 Every blob records the name of the token that wrote it. The action uses `ci-job`, and the dev compose setup uses `dev-<username>`.
 
-The server checks storage access before it starts listening. If the container is missing, a role assignment is missing or the SAS has expired, it exits with an error that says so. Once `/health` responds, the server is ready to serve requests.
+The server checks storage access before it starts listening. If the container is missing, or a role assignment is missing, it exits with an error that says so. Once `/health` responds, the server is ready to serve requests.

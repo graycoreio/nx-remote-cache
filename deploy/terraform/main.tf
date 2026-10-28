@@ -59,7 +59,7 @@ resource "azurerm_storage_account" "this" {
   account_replication_type = var.storage_sku
   access_tier              = "Hot"
 
-  # The server only ever uses Entra identities or user-delegation SAS: no account keys.
+  # The server only ever uses Entra identities: no account keys.
   shared_access_key_enabled       = false
   allow_nested_items_to_be_public = false
   min_tls_version                 = "TLS1_2"

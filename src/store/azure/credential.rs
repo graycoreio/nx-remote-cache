@@ -30,8 +30,9 @@ pub enum StorageAuth {
     },
     /// The developer's own `az login` / `azd auth login`. For `cargo run` on a dev machine.
     DeveloperTools,
-    /// A SAS token (ideally a user-delegation SAS) read from the named environment variable.
-    /// The only mode that works over plain http, i.e. against Azurite.
+    /// A SAS token read from the named environment variable. Only for Azurite (the only mode
+    /// that works over plain http), so only in builds with the `azurite` feature.
+    #[cfg(feature = "azurite")]
     Sas {
         #[serde(default = "default_sas_env")]
         sas_token_env: String,
@@ -42,12 +43,14 @@ fn default_client_secret_env() -> String {
     "AZURE_CLIENT_SECRET".into()
 }
 
+#[cfg(feature = "azurite")]
 fn default_sas_env() -> String {
     "AZURE_STORAGE_SAS_TOKEN".into()
 }
 
 pub enum ResolvedAuth {
     Credential(Arc<dyn TokenCredential>),
+    #[cfg(feature = "azurite")]
     Sas(String),
 }
 
@@ -58,6 +61,7 @@ impl StorageAuth {
             Self::WorkloadIdentity { .. } => "workload_identity",
             Self::ClientSecret { .. } => "client_secret",
             Self::DeveloperTools => "developer_tools",
+            #[cfg(feature = "azurite")]
             Self::Sas { .. } => "sas",
         }
     }
@@ -107,6 +111,7 @@ impl StorageAuth {
             Self::DeveloperTools => {
                 ResolvedAuth::Credential(DeveloperToolsCredential::new(None).map_err(wrap)?)
             }
+            #[cfg(feature = "azurite")]
             Self::Sas { sas_token_env } => {
                 let token = read_env(sas_token_env, mode)?;
                 ResolvedAuth::Sas(token.trim_start_matches('?').to_owned())

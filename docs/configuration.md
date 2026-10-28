@@ -6,7 +6,7 @@ One TOML document, assembled from up to three sources. Later sources win.
 2. **Inline TOML** in `NX_CACHE_CONFIG_TOML`. This is how the action passes its config.
 3. **Per-key overrides** `NX_CACHE__<SECTION>__<KEY>`, e.g. `NX_CACHE__SERVER__LISTEN=127.0.0.1:8080`. Single values only; lists such as `[[auth.providers]]` need the file or inline TOML.
 
-Config never contains secrets. SAS tokens and client secrets come from environment variables the config names. Static tokens are stored as SHA-256 hashes.
+Config never contains secrets. Client secrets come from environment variables the config names. Static tokens are stored as SHA-256 hashes.
 
 | How you run it | Where the config lives |
 |---|---|
@@ -56,7 +56,6 @@ Log level follows `RUST_LOG` (default `info`).
 | `workload_identity` | `tenant_id`, `client_id` (default `AZURE_TENANT_ID` / `AZURE_CLIENT_ID`) | Federation via `AZURE_FEDERATED_TOKEN_FILE` |
 | `client_secret` | `tenant_id`, `client_id`, `client_secret_env` (default `AZURE_CLIENT_SECRET`) | A service principal |
 | `developer_tools` | — | `az login` / `azd auth login` |
-| `sas` | `sas_token_env` (default `AZURE_STORAGE_SAS_TOKEN`) | The only mode that works over plain `http` |
 
 ### `[[auth.providers]]`
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Run the full test suite, including the Azure store tests against Azurite.
+# Run the full test suite, including the Azure store tests against Azurite (which need the
+# `azurite` feature: it adds the `sas` storage auth mode they use).
 #
 # Uses an Azurite already listening on 127.0.0.1:10000 if there is one; otherwise starts one
 # with `npx azurite-blob` (in-memory, stopped on exit).
@@ -39,4 +40,4 @@ if [ "$code" != 201 ] && [ "$code" != 409 ]; then
   exit 1
 fi
 
-cargo test "$@"
+cargo test --features azurite "$@"

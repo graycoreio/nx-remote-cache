@@ -1,4 +1,5 @@
 # Local development against Azurite (see docker-compose.yml / scripts/azurite-test.sh).
+# Needs a server built with the `azurite` feature, for the `sas` auth mode.
 # The static tokens below are WELL-KNOWN and for local use only, like Azurite's account key:
 #   read:  local-read-token
 #   write: local-write-token

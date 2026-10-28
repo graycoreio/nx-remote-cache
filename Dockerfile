@@ -11,9 +11,13 @@ RUN apt-get update \
 WORKDIR /src
 COPY . .
 
+# Cargo features, e.g. `azurite` for the offline Docker Compose stack. Release images don't use
+# this stage (they package the release binaries), so they never have any.
+ARG FEATURES=""
+
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cargo build --release --locked \
+    cargo build --release --locked --features "$FEATURES" \
     && cp target/release/nx-remote-cache /nx-remote-cache
 
 # Place the binary under its target architecture so release builds can swap in prebuilt binaries.

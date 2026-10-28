@@ -298,19 +298,20 @@ mod tests {
         }
     }
 
+    fn parse_storage_auth(auth: &str) -> Result<Config, Box<figment::Error>> {
+        parse(&format!(
+            "[storage]\ntype = \"azure\"\naccount = \"x\"\ncontainer = \"c\"\nauth = {auth}\n[auth]\nproviders = []"
+        ))
+    }
+
     #[test]
     fn rejects_unknown_storage_auth_mode() {
-        let err = parse(
-            r#"
-            [storage]
-            type = "azure"
-            account = "x"
-            container = "c"
-            auth = { mode = "connection_string" }
-            [auth]
-            providers = []
-            "#,
-        );
-        assert!(err.is_err());
+        assert!(parse_storage_auth(r#"{ mode = "connection_string" }"#).is_err());
+    }
+
+    #[test]
+    fn sas_mode_only_exists_in_azurite_builds() {
+        let sas = parse_storage_auth(r#"{ mode = "sas" }"#);
+        assert_eq!(sas.is_ok(), cfg!(feature = "azurite"), "{sas:?}");
     }
 }

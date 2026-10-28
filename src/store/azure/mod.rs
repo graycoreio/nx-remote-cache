@@ -93,6 +93,7 @@ impl AzureBlobStore {
 
         let credential = match config.auth.resolve()? {
             ResolvedAuth::Credential(credential) => Some(credential),
+            #[cfg(feature = "azurite")]
             ResolvedAuth::Sas(token) => {
                 url.set_query(Some(&token));
                 None
@@ -287,8 +288,8 @@ impl CacheStore for AzureBlobStore {
         // Probe a blob that never exists. BlobNotFound proves the credential works and the
         // container exists; ContainerNotFound, 403s and credential failures are the
         // misconfigurations worth reporting. (`BlobClient::exists()` is no use here: it also
-        // maps ContainerNotFound to `false`.) Needs only blob read permission, so a
-        // container-scoped SAS works.
+        // maps ContainerNotFound to `false`.) Needs only blob read permission, so a reader
+        // identity works.
         let probe = self
             .container
             .blob_client(&self.blob_name(READY_PROBE_BLOB));
@@ -318,7 +319,7 @@ fn is_conflict(e: &azure_core::Error) -> bool {
     ) || error_code(e) == Some("BlobAlreadyExists")
 }
 
-/// Authenticated, but the role (or SAS) doesn't include writing.
+/// Authenticated, but the role doesn't include writing.
 fn is_write_denied(e: &azure_core::Error) -> bool {
     e.http_status() == Some(StatusCode::Forbidden)
         && error_code(e) == Some("AuthorizationPermissionMismatch")
@@ -338,9 +339,7 @@ fn explain(e: &azure_core::Error) -> String {
             "authenticated, but the identity lacks the `Storage Blob Data Contributor` role on \
              the container, or the container does not exist"
         }
-        (Some(StatusCode::Forbidden), _) => {
-            "access denied: check the identity's role assignment, or the SAS token's permissions and expiry"
-        }
+        (Some(StatusCode::Forbidden), _) => "access denied: check the identity's role assignment",
         _ if matches!(e.kind(), ErrorKind::Credential) => {
             "could not obtain an Azure credential for the configured auth mode"
         }
@@ -381,7 +380,7 @@ mod tests {
         .into_error()
     }
 
-    // Azurite enforces SAS but not RBAC, so the RBAC case can't be produced by the Azurite
+    // Azurite (with SAS) doesn't do RBAC, so the RBAC case can't be produced by the Azurite
     // tests; these pin every explanation branch with errors shaped like real Azure's.
     #[test]
     fn explains_rbac_denial_including_missing_container() {
@@ -398,8 +397,8 @@ mod tests {
 
     #[test]
     fn explains_other_denials_and_missing_container() {
-        let sas = explain(&http_error(StatusCode::Forbidden, "AuthenticationFailed"));
-        assert!(sas.starts_with("access denied"), "{sas}");
+        let denied = explain(&http_error(StatusCode::Forbidden, "AuthenticationFailed"));
+        assert!(denied.starts_with("access denied"), "{denied}");
         let missing = explain(&http_error(StatusCode::NotFound, "ContainerNotFound"));
         assert!(
             missing.starts_with("the container does not exist"),
