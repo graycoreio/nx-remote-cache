@@ -91,7 +91,7 @@ jobs:
           path: ${{ runner.temp }}/prebuilt/amd64
       - run: chmod +x "$RUNNER_TEMP/prebuilt/amd64/nx-remote-cache"
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: packages/server/Dockerfile
