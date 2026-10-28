@@ -1,0 +1,8 @@
+{
+  "name": "@graycore/nx-remote-cache-workspace",
+  "private": true,
+  "license": "MIT",
+  "devDependencies": {
+    "nx": "24.0.2"
+  }
+}

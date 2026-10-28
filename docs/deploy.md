@@ -1,6 +1,6 @@
 # Deploying to Azure
 
-You can use the Terraform module in [`deploy/terraform`](../deploy/terraform) to deploy the necessary infrastructure to Azure.
+You can use the Terraform module in [`packages/terraform`](../packages/terraform) to deploy the necessary infrastructure to Azure.
 
 It contains:
 
@@ -17,7 +17,7 @@ provider "azurerm" {
 }
 
 module "nx_remote_cache" {
-  source = "github.com/graycoreio/nx-remote-cache//deploy/terraform?ref=<tag>"
+  source = "github.com/graycoreio/nx-remote-cache//packages/terraform?ref=<tag>"
 
   resource_group_name  = "<resource group>"
   storage_account_name = "<account>"
@@ -29,6 +29,8 @@ output "nx_remote_cache" {
   value = module.nx_remote_cache
 }
 ```
+
+Releases before the module moved to `packages/terraform` have it at `//deploy/terraform`.
 
 Before deploying:
 

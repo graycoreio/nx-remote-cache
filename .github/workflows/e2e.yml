@@ -1,5 +1,5 @@
 # End-to-end test through the nx-remote-cache action and a real Nx client, with the server built
-# from this commit running inside the job and using storage directly (deploy/terraform). The
+# from this commit running inside the job and using storage directly (packages/terraform). The
 # action's home is graycoreio/github-actions/nx-remote-cache; until it is merged there, its build
 # is tested from graycoreio/github-actions/nx-remote-cache@feat/nx-remote-cache.
 #

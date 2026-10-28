@@ -9,10 +9,10 @@ on:
   pull_request:
     paths:
       - .github/workflows/release.yml
-      - Dockerfile
-      - scripts/build-release.sh
-      - scripts/archive-release.sh
-      - scripts/smoke-test-binary.sh
+      - packages/server/Dockerfile
+      - packages/server/scripts/build-release.sh
+      - packages/server/scripts/archive-release.sh
+      - packages/server/scripts/smoke-test-binary.sh
   workflow_dispatch:
 
 # A newer push to a pull request supersedes its running checks. Runs on main and on tags are
@@ -45,9 +45,9 @@ jobs:
           shared-key: release-${{ matrix.target }}
           # A cache saved by a tag run is only visible to that tag.
           save-if: ${{ github.ref_type != 'tag' }}
-      - run: scripts/build-release.sh out ${{ matrix.target }}
-      - run: scripts/smoke-test-binary.sh out/nx-remote-cache
-      - run: scripts/archive-release.sh out ${{ matrix.target }}
+      - run: packages/server/scripts/build-release.sh out ${{ matrix.target }}
+      - run: packages/server/scripts/smoke-test-binary.sh out/nx-remote-cache
+      - run: packages/server/scripts/archive-release.sh out ${{ matrix.target }}
       - uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.target }}
@@ -66,13 +66,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref_type != 'tag' }}
-      - run: scripts/build-release.sh out aarch64-apple-darwin x86_64-apple-darwin
+      - run: packages/server/scripts/build-release.sh out aarch64-apple-darwin x86_64-apple-darwin
       - name: Smoke test
         run: |
-          scripts/smoke-test-binary.sh out/nx-remote-cache
+          packages/server/scripts/smoke-test-binary.sh out/nx-remote-cache
           # The Intel slice, under Rosetta.
           arch -x86_64 out/nx-remote-cache hash-token smoke >/dev/null
-      - run: scripts/archive-release.sh out universal-apple-darwin
+      - run: packages/server/scripts/archive-release.sh out universal-apple-darwin
       - uses: actions/upload-artifact@v7
         with:
           name: binary-universal-apple-darwin
@@ -118,6 +118,7 @@ jobs:
       - uses: docker/build-push-action@v7
         with:
           context: .
+          file: packages/server/Dockerfile
           build-contexts: binary=${{ runner.temp }}/prebuilt
           platforms: linux/amd64,linux/arm64
           push: ${{ github.ref_type == 'tag' }}

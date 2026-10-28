@@ -1,11 +1,22 @@
 # Development
 
+## Layout
+
+This repository is an [Nx](https://nx.dev) workspace (`npm install` once) and a Cargo workspace.
+
+| Project     | Path                 | What                                                         |
+| ----------- | -------------------- | ------------------------------------------------------------ |
+| `server`    | `packages/server`    | The `nx-remote-cache` crate, its Dockerfile and Compose stacks |
+| `terraform` | `packages/terraform` | The Azure Terraform module                                   |
+
+Run any target with `npx nx run <project>:<target>`, e.g. `npx nx run server:test`. `npx nx show project <project>` lists a project's targets.
+
 ## Running locally
 
 Start Azurite and the server with Docker Compose. The server listens on port 3000.
 
 ```sh
-docker compose up --build
+npx nx run server:compose
 ```
 
 The Compose stack builds the server with the `azurite` Cargo feature. It adds a `sas` storage auth mode, which only works against Azurite; release builds don't include it.
@@ -38,5 +49,13 @@ cargo test
 To run everything, including the Azure storage tests against Azurite (built with the `azurite` feature), use:
 
 ```sh
-scripts/azurite-test.sh
+npx nx run server:test
+```
+
+## Linting
+
+```sh
+npx nx run-many -t lint       # rustfmt + clippy, terraform fmt
+npx nx run terraform:validate
+npx nx run-many -t fmt        # fix formatting
 ```

@@ -1,0 +1,64 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "server",
+  "projectType": "application",
+  "sourceRoot": "packages/server/src",
+  "tags": ["lang:rust"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "cargo build --locked -p nx-remote-cache"
+      },
+      "configurations": {
+        "release": {
+          "command": "cargo build --release --locked -p nx-remote-cache"
+        }
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "continuous": true,
+      "options": {
+        "command": "cargo run -p nx-remote-cache -- serve"
+      }
+    },
+    "fmt": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "cargo fmt -p nx-remote-cache"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "inputs": ["default", "rust"],
+      "options": {
+        "commands": [
+          "cargo fmt -p nx-remote-cache --check",
+          "cargo clippy -p nx-remote-cache --all-targets --all-features -- -D warnings"
+        ],
+        "parallel": false
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "inputs": ["default", "rust"],
+      "options": {
+        "command": "packages/server/scripts/azurite-test.sh"
+      }
+    },
+    "compose": {
+      "executor": "nx:run-commands",
+      "continuous": true,
+      "options": {
+        "command": "docker compose -f packages/server/docker-compose.yml up --build"
+      }
+    },
+    "dev-compose": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "packages/server/scripts/dev-compose.sh"
+      }
+    }
+  }
+}

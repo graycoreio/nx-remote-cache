@@ -40,4 +40,4 @@ if [ "$code" != 201 ] && [ "$code" != 409 ]; then
   exit 1
 fi
 
-cargo test --features azurite "$@"
+cargo test -p nx-remote-cache --features azurite "$@"

@@ -38,7 +38,7 @@ It implements Nx's [remote cache spec](https://nx.dev/docs/kb/self-hosted-cachin
 
 ## Getting Started
 
-First, [deploy](docs/deploy.md) the storage container and the CI identities with the [Terraform module](deploy/terraform).
+First, [deploy](docs/deploy.md) the storage container and the CI identities with the [Terraform module](packages/terraform).
 
 ### CI
 
@@ -62,7 +62,7 @@ steps:
 
 ### Locally
 
-[Install](docs/install.md) the binary, copy [`config/developer.example.toml`](config/developer.example.toml) to `config.toml` and fill in the values, then:
+[Install](docs/install.md) the binary, copy [`packages/server/config/developer.example.toml`](packages/server/config/developer.example.toml) to `config.toml` and fill in the values, then:
 
 ```sh
 az login

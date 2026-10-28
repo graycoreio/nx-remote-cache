@@ -2,3 +2,10 @@
 /config.toml
 .env
 __pycache__/
+/dist
+/out
+node_modules/
+.nx/cache
+.nx/workspace-data
+.terraform/
+.terraform.lock.hcl

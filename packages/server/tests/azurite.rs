@@ -1,5 +1,5 @@
 //! Azure store tests against Azurite. Skipped unless `AZURITE_SAS_TOKEN` is set; see
-//! `scripts/azurite-test.sh`, which starts Azurite, creates the container and runs these.
+//! `packages/server/scripts/azurite-test.sh`, which starts Azurite, creates the container and runs these.
 //!
 //! Optional: `AZURITE_ENDPOINT` (default `http://127.0.0.1:10000/devstoreaccount1`) and
 //! `AZURITE_CONTAINER` (default `nx-cache-test`).

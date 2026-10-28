@@ -1,7 +1,7 @@
 # Fully local stack: Azurite (Azure Blob emulator) + the cache server, built with the
 # `azurite` feature for the `sas` storage auth mode.
 #
-#   docker compose up --build
+#   docker compose -f packages/server/docker-compose.yml up --build   # or: npx nx run server:compose
 #   export NX_SELF_HOSTED_REMOTE_CACHE_SERVER=http://localhost:3000
 #   export NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN=local-write-token   # or local-read-token
 #
@@ -9,6 +9,9 @@
 # not a secret and only works against the emulator.
 
 x-azurite-sas: &azurite-sas "se=2035-01-01T00%3A00Z&sp=rwdlac&sv=2026-04-06&ss=b&srt=sco&sig=cO88Suxa2pemR0IUIqL5uQm6F%2BL1Z18nhX7zSLZ8up8%3D"
+
+# Pinned so the project (and its volumes) keep their names wherever this file lives.
+name: nx-remote-cache
 
 services:
   azurite:
@@ -36,7 +39,9 @@ services:
 
   nx-remote-cache:
     build:
-      context: .
+      # The Cargo workspace root.
+      context: ../..
+      dockerfile: packages/server/Dockerfile
       # Adds the `sas` storage auth mode, which only works against Azurite.
       args: { FEATURES: azurite }
     depends_on:

@@ -26,6 +26,9 @@
 # that don't carry it, e.g. server-side request forgery, from obtaining your storage tokens.
 x-identity-header: &identity-header ${NX_CACHE_IDENTITY_HEADER:?run scripts/dev-compose.sh, which generates it}
 
+# Pinned so the project (and the az-login volume) keep their names wherever this file lives.
+name: nx-remote-cache
+
 services:
   az:
     image: mcr.microsoft.com/azure-cli:2.91.0
@@ -43,7 +46,10 @@ services:
       retries: 15
 
   server:
-    build: .
+    build:
+      # The Cargo workspace root.
+      context: ../..
+      dockerfile: packages/server/Dockerfile
     image: nx-remote-cache:dev
     depends_on:
       az:

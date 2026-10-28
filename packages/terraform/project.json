@@ -1,0 +1,31 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "terraform",
+  "projectType": "library",
+  "tags": ["lang:terraform"],
+  "targets": {
+    "fmt": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "terraform fmt",
+        "cwd": "packages/terraform"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "inputs": ["terraform"],
+      "options": {
+        "command": "terraform fmt -check -diff",
+        "cwd": "packages/terraform"
+      }
+    },
+    "validate": {
+      "executor": "nx:run-commands",
+      "inputs": ["terraform"],
+      "options": {
+        "command": "terraform init -backend=false -input=false && terraform validate",
+        "cwd": "packages/terraform"
+      }
+    }
+  }
+}

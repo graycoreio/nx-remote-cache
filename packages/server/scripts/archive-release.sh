@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Packs what scripts/build-release.sh built into the release archive:
-#   scripts/archive-release.sh <out-dir> <target-name>
+# Packs what packages/server/scripts/build-release.sh built into the release archive:
+#   packages/server/scripts/archive-release.sh <out-dir> <target-name>
 # → dist/nx-remote-cache-<version>-<target-name>.tar.gz
 # <version> is the tag without its `v`, or `dev` outside a tag run.
 set -euo pipefail

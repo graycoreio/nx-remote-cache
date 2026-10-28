@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the release binary for one platform:
-#   scripts/build-release.sh <out-dir> <target>...
+#   packages/server/scripts/build-release.sh <out-dir> <target>...
 # Writes <out-dir>/nx-remote-cache. Given several targets (macOS: aarch64 + x86_64), it is one
 # universal binary.
 # CI's release-build job runs the same `cargo build`, so the cache it saves on main is the one

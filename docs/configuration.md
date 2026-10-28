@@ -12,10 +12,10 @@ Config never contains secrets. Client secrets come from environment variables th
 |---|---|
 | Binary / `cargo run` | `./config.toml`, or `--config <path>` |
 | Docker image | Mount at `/etc/nx-remote-cache/config.toml`, or pass `NX_CACHE_CONFIG_TOML` |
-| `docker compose` (this repo) | [`config/local.toml`](../config/local.toml) |
+| `docker compose` (this repo) | [`packages/server/config/local.toml`](../packages/server/config/local.toml) |
 | The action | Generated per job, passed as `NX_CACHE_CONFIG_TOML` |
 
-Examples: [`config/local.toml`](../config/local.toml) (Azurite) and [`config/developer.example.toml`](../config/developer.example.toml) (`az login`, real storage).
+Examples: [`packages/server/config/local.toml`](../packages/server/config/local.toml) (Azurite) and [`packages/server/config/developer.example.toml`](../packages/server/config/developer.example.toml) (`az login`, real storage).
 
 ```sh
 nx-remote-cache generate-token        # new random token + its sha256

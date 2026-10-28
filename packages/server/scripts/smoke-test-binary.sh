@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks that a built server binary runs and serves: scripts/smoke-test-binary.sh <path>
+# Checks that a built server binary runs and serves: packages/server/scripts/smoke-test-binary.sh <path>
 # Used by the release workflow on each platform it builds for.
 set -euo pipefail
 
