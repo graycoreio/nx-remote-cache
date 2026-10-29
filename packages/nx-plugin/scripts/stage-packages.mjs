@@ -111,6 +111,11 @@ fs.cpSync(path.join(pluginDir, 'dist'), path.join(dir, 'dist'), {
     recursive: true,
     filter: (src) => !/\.test\.(js|d\.ts)$/.test(src),
 });
+// tsc writes plain files. npm marks bin scripts executable when it installs a package, but not
+// when it links a directory, e.g. this one through `file:`, after the link was made.
+for (const bin of Object.values(plugin.bin ?? {})) {
+    fs.chmodSync(path.join(dir, bin), 0o755);
+}
 fs.copyFileSync(path.resolve(pluginDir, '../../LICENSE'), path.join(dir, 'LICENSE'));
 fs.copyFileSync(path.join(pluginDir, 'README.md'), path.join(dir, 'README.md'));
 const { scripts, devDependencies, ...manifest } = plugin;
