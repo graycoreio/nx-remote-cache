@@ -97,7 +97,7 @@ The [plugin's README](packages/nx-plugin) covers its options and environment var
 
 
 ### Running the caching server manually
-To run the server yourself instead, with the GitHub Action, the binary or Docker, see [Usage](docs/usage.md).
+To run the server yourself instead, with the binary or the GitHub Action, see [Running the server](docs/running-the-server.md).
 
 ## Features
 
@@ -112,7 +112,7 @@ To run the server yourself instead, with the GitHub Action, the binary or Docker
 - [Configuration](docs/server-configuration.md)
 - [How it works](docs/how-it-works.md)
 - [Deploying to Azure](docs/deploy.md)
-- [Usage](docs/usage.md)
+- [Running the server](docs/running-the-server.md)
 - [Security model](docs/security-model.md)
 - [Cache poisoning](docs/cache-poisoning.md)
 - [Development](docs/development.md)

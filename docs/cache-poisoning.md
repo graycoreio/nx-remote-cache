@@ -71,6 +71,6 @@ Update `nx.json` with the new values from `terraform output`:
 "readerClientId": "<reader_client_id>"
 ```
 
-If you use the [GitHub Action](usage.md#github-actions), update its `storage-container`, `writer-client-id` and `reader-client-id` inputs instead.
+If you use the [GitHub Action](running-the-server.md#running-it-in-ci), update its `storage-container`, `writer-client-id` and `reader-client-id` inputs instead.
 
 Expect one slow round of builds while the cache refills. Until a branch has the new `nx.json`, its CI runs without the remote cache. Developers pick up the change on their next pull; `nx @graycore/nx-remote-cache:stop` stops their old server sooner.
