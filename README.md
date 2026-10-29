@@ -54,57 +54,28 @@ For further information on how we overcome CREEP, please see the [security guide
 
 First, [deploy](docs/deploy.md) the storage container and the CI identities with the [Terraform module](packages/terraform).
 
-### Nx plugin (CI and locally)
-
-The [`@graycoreio/nx-remote-cache`](packages/nx-plugin) plugin bundles the server and starts it whenever Nx runs tasks, in CI (GitHub OIDC) and locally (`az login`), so neither needs any other setup:
+Then add the [`@graycoreio/nx-remote-cache`](packages/nx-plugin) plugin to your workspace. It bundles the server and starts it whenever Nx runs tasks, in CI (GitHub OIDC) and locally (`az login`), so neither needs any other setup:
 
 ```sh
 npm install -D @graycoreio/nx-remote-cache
 ```
 
-```json
+```jsonc
+// nx.json, with the deployment outputs
 "plugins": [{ "plugin": "@graycoreio/nx-remote-cache", "options": { "storageAccount": "<storageAccount>", "storageContainer": "<storageContainer>", "tenantId": "<tenantId>", "writerClientId": "<writerClientId>", "readerClientId": "<readerClientId>" } }]
 ```
 
-Or run the server yourself, as below.
-
-### CI
-
-Add the [nx-remote-cache action](https://github.com/graycoreio/github-actions/tree/main/nx-remote-cache) to your workflows, using the deployment outputs:
+In GitHub Actions, give the jobs that run Nx an [OIDC token](https://docs.github.com/en/actions/concepts/security/openid-connect):
 
 ```yaml
 permissions:
   id-token: write
   contents: read
-
-steps:
-  - uses: graycoreio/github-actions/nx-remote-cache@main
-    with:
-      tenant-id: <tenantId>
-      writer-client-id: <writerClientId>
-      reader-client-id: <readerClientId>
-      storage-account: <storageAccount>
-      storage-container: <storageContainer>
-  - run: npx nx affected -t build test lint
 ```
 
-### Locally
+Check that it works with `nx @graycoreio/nx-remote-cache`. The [plugin's README](packages/nx-plugin) covers its options and environment variables.
 
-[Install](docs/install.md) the binary, copy [`packages/server/config/developer.example.toml`](packages/server/config/developer.example.toml) to `config.toml` and fill in the values, then:
-
-```sh
-az login
-nx-remote-cache
-```
-
-Point Nx at it with the token from your config:
-
-```sh
-export NX_SELF_HOSTED_REMOTE_CACHE_SERVER=http://127.0.0.1:3000
-export NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN=<token>
-```
-
-To run it with Docker instead, see [Usage](docs/usage.md).
+To run the server yourself instead, with the GitHub Action, the binary or Docker, see [Usage](docs/usage.md).
 
 ## Features
 

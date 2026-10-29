@@ -1,5 +1,7 @@
 # Usage
 
+The [Nx plugin](../packages/nx-plugin) is the recommended way to use nx-remote-cache: it starts the server for you, in CI and locally. This guide is for running the server yourself instead, for example where the plugin can't run the bundled binary.
+
 ## Github actions
 
 ```yaml
@@ -127,4 +129,9 @@ az login
 nx-remote-cache
 ```
 
-The comments in [`packages/server/config/developer.example.toml`](../packages/server/config/developer.example.toml) explain each value. Then point Nx at `http://127.0.0.1:3000` with the token you put in the config.
+The comments in [`packages/server/config/developer.example.toml`](../packages/server/config/developer.example.toml) explain each value. Then point Nx at it with the token you put in the config:
+
+```sh
+export NX_SELF_HOSTED_REMOTE_CACHE_SERVER=http://127.0.0.1:3000
+export NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN=<token>
+```
