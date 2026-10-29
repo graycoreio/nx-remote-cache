@@ -1,6 +1,7 @@
 name: Release
 
-# A `v*` tag publishes binaries (GitHub release assets) and multi-arch images (GHCR).
+# A `v*` tag publishes binaries (GitHub release assets), multi-arch images (GHCR) and the Nx
+# plugin with its platform packages (npm).
 # Pull requests touching the release build, and manual runs, build and smoke test everything
 # without publishing.
 on:
@@ -13,6 +14,7 @@ on:
       - packages/server/scripts/build-release.sh
       - packages/server/scripts/archive-release.sh
       - packages/server/scripts/smoke-test-binary.sh
+      - packages/nx-plugin/scripts/stage-packages.mjs
   workflow_dispatch:
 
 # A newer push to a pull request supersedes its running checks. Runs on main and on tags are
@@ -148,3 +150,54 @@ jobs:
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
             || gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
           gh release upload "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS --clobber
+
+  # The Nx plugin and one package per platform holding its binary, from the same archives as the
+  # GitHub release. Outside a tag run, only staged and packed, to check they build.
+  npm:
+    needs: [linux, darwin]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: binary-*
+          path: ${{ runner.temp }}/archives
+          merge-multiple: true
+      - run: npm ci --no-audit --no-fund
+      - name: Stage the packages
+        run: npx nx run nx-plugin:build-platform:ci
+      - run: echo "VERSION=$(jq -r .version packages/nx-plugin/package.json)" >> "$GITHUB_ENV"
+      # A hyphen marks a semver prerelease, e.g. 0.5.0-beta.1.
+      - name: Is prerelease
+        id: is-prerelease
+        run: |
+          if [[ "$VERSION" == *-* ]]; then echo "result=true"; else echo "result=false"; fi >> "$GITHUB_OUTPUT"
+      # order.txt lists the three platform packages, then the plugin, which depends on them.
+      - name: Pack (dry run)
+        if: github.ref_type != 'tag'
+        run: |
+          while read -r dir; do
+            (cd "$dir" && npm pack --dry-run)
+          done < "$RUNNER_TEMP/npm/order.txt"
+      - name: Publish
+        if: github.ref_type == 'tag'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Prereleases go to `next`, so `latest` stays on the last stable release.
+          DIST_TAG: ${{ steps.is-prerelease.outputs.result == 'true' && 'next' || 'latest' }}
+        run: |
+          while read -r dir; do
+            name=$(jq -r .name "$dir/package.json")
+            # A re-run of a half-failed release skips what it already published.
+            if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+              echo "$name@$VERSION is already published"
+              continue
+            fi
+            (cd "$dir" && npm publish --access public --tag "$DIST_TAG")
+          done < "$RUNNER_TEMP/npm/order.txt"

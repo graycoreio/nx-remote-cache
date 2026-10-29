@@ -6,6 +6,7 @@ node_modules
 dist
 docs
 packages/terraform
+packages/nx-plugin
 packages/server/scripts
 **/*.md
 **/config.toml

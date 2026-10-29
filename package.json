@@ -2,6 +2,9 @@
   "name": "@graycore/nx-remote-cache-workspace",
   "private": true,
   "license": "MIT",
+  "workspaces": [
+    "packages/nx-plugin"
+  ],
   "devDependencies": {
     "nx": "24.0.2"
   }

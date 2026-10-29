@@ -52,6 +52,18 @@ jobs:
       # Runs unit, API, spec and Azurite-backed store tests.
       - run: npx nx run server:test
 
+  # The Nx plugin (packages/nx-plugin): type check, build and unit tests.
+  nx-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx nx run nx-plugin:test
+
   msrv:
     runs-on: ubuntu-latest
     steps:

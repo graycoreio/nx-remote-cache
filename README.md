@@ -16,7 +16,7 @@
 - 🔑 Uses the caller's own Azure identity: GitHub OIDC in CI, `az login` locally
 - 🔒 Write-once entries, never overwritten
 - 🚫 No shared keys, no connection strings
-- ⚡ Works with Nx's built-in client, no plugin
+- ⚡ Works with Nx's built-in client
 - 🦀 One static Rust binary, or a container image
 
 ## Nx Version Support
@@ -39,6 +39,20 @@ It implements Nx's [remote cache spec](https://nx.dev/docs/kb/self-hosted-cachin
 ## Getting Started
 
 First, [deploy](docs/deploy.md) the storage container and the CI identities with the [Terraform module](packages/terraform).
+
+### Nx plugin (CI and locally)
+
+The [`@graycoreio/nx-remote-cache`](packages/nx-plugin) plugin bundles the server and starts it whenever Nx runs tasks, in CI (GitHub OIDC) and locally (`az login`), so neither needs any other setup:
+
+```sh
+npm install -D @graycoreio/nx-remote-cache
+```
+
+```json
+"plugins": [{ "plugin": "@graycoreio/nx-remote-cache", "options": { "storageAccount": "<storageAccount>", "storageContainer": "<storageContainer>", "tenantId": "<tenantId>", "writerClientId": "<writerClientId>", "readerClientId": "<readerClientId>" } }]
+```
+
+Or run the server yourself, as below.
 
 ### CI
 

@@ -8,8 +8,19 @@ This repository is an [Nx](https://nx.dev) workspace (`npm install` once) and a 
 | ----------- | -------------------- | ------------------------------------------------------------ |
 | `server`    | `packages/server`    | The `nx-remote-cache` crate, its Dockerfile and Compose stacks |
 | `terraform` | `packages/terraform` | The Azure Terraform module                                   |
+| `nx-plugin` | `packages/nx-plugin` | The `@graycoreio/nx-remote-cache` Nx plugin (npm)            |
 
 Run any target with `npx nx run <project>:<target>`, e.g. `npx nx run server:test`. `npx nx show project <project>` lists a project's targets.
+
+## Prerequisites
+
+The server needs Rust 1.89 or later (it uses the 2024 edition). Install it with [rustup](https://rustup.rs), as the [Cargo book](https://doc.rust-lang.org/cargo/getting-started/installation.html) describes, rather than your OS package manager, whose `cargo` is often too old:
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Then open a new shell, or run `. "$HOME/.cargo/env"`, and check that `cargo --version` shows the rustup toolchain. If it still shows an older version, a system `cargo` is ahead of `~/.cargo/bin` on your `PATH`; remove it (for example `sudo apt remove cargo rustc`).
 
 ## Running locally
 
@@ -59,3 +70,15 @@ npx nx run-many -t lint       # rustfmt + clippy, terraform fmt
 npx nx run terraform:validate
 npx nx run-many -t fmt        # fix formatting
 ```
+
+### Nx plugin
+
+The Nx plugin in [`packages/nx-plugin`](../packages/nx-plugin) has its own unit tests:
+
+```sh
+npx nx run nx-plugin:test
+```
+
+To try it in a workspace with a server built from source, install the package from its directory and set `NX_REMOTE_CACHE_BINARY=<path to target/debug/nx-remote-cache>`.
+
+Releases publish the plugin and one package per platform with its binary, staged from the release archives by [`packages/nx-plugin/scripts/stage-packages.mjs`](../packages/nx-plugin/scripts/stage-packages.mjs).

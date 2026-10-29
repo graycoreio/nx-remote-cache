@@ -1,0 +1,47 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "nx-plugin",
+  "projectType": "library",
+  "sourceRoot": "packages/nx-plugin/src",
+  "tags": [
+    "lang:typescript"
+  ],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "outputs": [
+        "{projectRoot}/dist"
+      ],
+      "options": {
+        "command": "tsc",
+        "cwd": "packages/nx-plugin"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build"
+      ],
+      "options": {
+        "command": "node --test 'dist/**/*.test.js'",
+        "cwd": "packages/nx-plugin"
+      }
+    },
+    "build-platform": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build"
+      ],
+      "options": {
+        "command": "node scripts/stage-packages.mjs ../../dist ../../dist/npm",
+        "cwd": "packages/nx-plugin"
+      },
+      "configurations": {
+        "ci": {
+          "command": "node scripts/stage-packages.mjs \"$RUNNER_TEMP/archives\" \"$RUNNER_TEMP/npm\""
+        }
+      }
+    }
+  }
+}
