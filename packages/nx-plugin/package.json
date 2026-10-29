@@ -1,6 +1,6 @@
 {
   "name": "@graycore/nx-remote-cache",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Nx plugin that runs nx-remote-cache next to Nx, so builds use a self-hosted remote cache on Azure Blob Storage with no setup.",
   "license": "MIT",
   "repository": {

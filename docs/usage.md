@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 steps:
-  - uses: graycoreio/nx-remote-cache/packages/github-action@v0.4.2
+  - uses: graycoreio/nx-remote-cache/packages/github-action@v0.4.3
     with:
       tenant-id: <tenantId output>
       writer-client-id: <writerClientId output>
