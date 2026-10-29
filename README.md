@@ -14,8 +14,10 @@
 
 This project provides:
 
-- A platform-specific rust server that runs next to Nx
-- It uses the caller's own Azure identity, changing depending upon context: GitHub OIDC in CI, `az login` locally
+- A platform-specific client-side rust server that runs next to Nx and implements their [Self-Hosted Caching spec](https://nx.dev/docs/kb/self-hosted-caching)
+- It uses the caller's own Azure identity, changing depending upon context:
+  - GitHub OIDC in CI
+  - `az login` locally
 - Immutable Storage for write-once entries
 - No connection strings
 - Works with Nx's built-in client
@@ -80,8 +82,19 @@ permissions:
   contents: read
 ```
 
-Check that it works with `nx @graycore/nx-remote-cache`. The [plugin's README](packages/nx-plugin) covers its options and environment variables.
+You can check the status of your connection to the cache with:
 
+```
+nx @graycore/nx-remote-cache
+```
+
+
+### Configuring
+
+The [plugin's README](packages/nx-plugin) covers its options and environment variables.
+
+
+### Running the caching server manually
 To run the server yourself instead, with the GitHub Action, the binary or Docker, see [Usage](docs/usage.md).
 
 ## Features
