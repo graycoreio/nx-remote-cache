@@ -8,8 +8,9 @@
  * If the server can't start (no `az login`, no role on the container, no OIDC token), Nx runs
  * without the remote cache instead of failing: an unreachable cache would fail the whole run.
  *
- * It also adds a target named after the package to the root project: `nx @graycore/nx-remote-cache`
- * checks that the cache works and says why when it doesn't.
+ * It also adds targets named after the package to the root project: `nx @graycore/nx-remote-cache`
+ * checks that the cache works and says why when it doesn't, and `nx @graycore/nx-remote-cache:stop`
+ * stops the workspace's server.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -25,6 +26,8 @@ export type { PluginOptions } from './settings';
 /** The subset of Nx's PreTasksExecutionContext the plugin uses. */
 interface PreTasksExecutionContext {
     readonly workspaceRoot: string;
+    /** The Nx command line, from Nx 21. */
+    readonly argv?: readonly string[];
 }
 
 /** The subset of Nx's CreateNodesContext the plugin uses. */
@@ -33,13 +36,17 @@ interface CreateNodesContext {
 }
 
 export const STATUS_TARGET = '@graycore/nx-remote-cache';
+export const STOP_TARGET = `${STATUS_TARGET}:stop`;
 
 // The hook has no output of its own with the Nx daemon (it goes to the daemon's log), so the
 // status lives in a target: running it runs the hook, and Nx shows a task's output.
 export const createNodes = [
     'nx.json',
-    (files: readonly string[], _options: PluginOptions | undefined, context: CreateNodesContext) =>
-        files.map((file) => [
+    (files: readonly string[], _options: PluginOptions | undefined, context: CreateNodesContext) => {
+        // This package's own CLI, not the `nx-remote-cache` bin: a package copied into
+        // node_modules has no link in node_modules/.bin.
+        const cli = (command: string) => `node ${JSON.stringify(path.relative(context.workspaceRoot, path.join(__dirname, 'cli.js')))} ${command}`;
+        return files.map((file) => [
             file,
             {
                 projects: {
@@ -47,17 +54,21 @@ export const createNodes = [
                         name: rootProjectName(context.workspaceRoot),
                         targets: {
                             [STATUS_TARGET]: {
-                                // This package's own CLI, not the `nx-remote-cache` bin: a package
-                                // copied into node_modules has no link in node_modules/.bin.
-                                command: `node ${JSON.stringify(path.relative(context.workspaceRoot, path.join(__dirname, 'cli.js')))} status`,
+                                command: cli('status'),
                                 cache: false,
                                 metadata: { description: 'Checks that the remote cache works, or says why it is off.' },
+                            },
+                            [STOP_TARGET]: {
+                                command: cli('stop'),
+                                cache: false,
+                                metadata: { description: "Stops this workspace's nx-remote-cache server." },
                             },
                         },
                     },
                 },
             },
-        ] as const),
+        ] as const);
+    },
 ] as const;
 
 // The same function under the name Nx 20 to 22 look for first. Without it, Nx 20 calls
@@ -83,6 +94,10 @@ const userServer = process.env.NX_SELF_HOSTED_REMOTE_CACHE_SERVER;
 export async function preTasksExecution(options: PluginOptions | undefined, context: PreTasksExecutionContext): Promise<void> {
     const env: NodeJS.ProcessEnv = { ...process.env, NX_SELF_HOSTED_REMOTE_CACHE_SERVER: userServer };
     const stateDir = stateDirFor(context.workspaceRoot);
+    // No point starting a server only to stop it. Nx 20 doesn't pass argv, so there it does.
+    if (context.argv?.some((arg) => arg.endsWith(STOP_TARGET))) {
+        return;
+    }
     let settings: Settings | undefined;
     try {
         const resolved = resolveSettings(options, env, () => readRunContext(env));

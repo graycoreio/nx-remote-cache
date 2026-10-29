@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { createNodes, STATUS_TARGET } from './index';
+import { createNodes, preTasksExecution, STATUS_TARGET, STOP_TARGET } from './index';
 import { Settings } from './settings';
 import { probe, PROBE_HASH, readLastRun, status, writeLastRun } from './status';
 
@@ -79,7 +79,7 @@ describe('status', () => {
         assert.equal(result.ok, true);
         assert.match(plain(result.text), /connected, but signed out/);
         assert.match(plain(result.text), /identity +! az login: signed out/);
-        assert.match(plain(result.text), /nx-remote-cache stop/);
+        assert.match(plain(result.text), /nx @graycore\/nx-remote-cache:stop/);
     });
 
     it("says why the cache is off, from the hook's last run", async () => {
@@ -127,6 +127,21 @@ describe('createNodes', () => {
             // Runs this package's CLI by its path from the workspace root, where Nx runs commands.
             const [, cli] = command.match(/^node "(.+)" status$/)!;
             assert.equal(path.resolve(root, cli), path.join(__dirname, 'cli.js'));
+            assert.equal(project.targets[STOP_TARGET].command, `node "${cli}" stop`);
+            assert.equal(project.targets[STOP_TARGET].cache, false);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+});
+
+describe('preTasksExecution', () => {
+    it("doesn't start a server for the stop target", async () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nx-remote-cache-test-'));
+        try {
+            await preTasksExecution({ storageAccount: 'acct', storageContainer: 'c' }, { workspaceRoot: root, argv: ['nx', STOP_TARGET] });
+            // It would have recorded the attempt, successful or not.
+            assert.equal(fs.existsSync(path.join(root, '.nx', 'gc-remote-cache', 'last-run.json')), false);
         } finally {
             fs.rmSync(root, { recursive: true, force: true });
         }

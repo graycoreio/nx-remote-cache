@@ -143,7 +143,7 @@ export async function status(deps: StatusDeps): Promise<{ ok: boolean; text: str
     if (signedOut) {
         const note = [
             "The server still uses the token from your last az login until it expires (up to about an hour).",
-            'Run `npx nx-remote-cache stop` to stop it now; the next Nx command then runs without the cache.',
+            'Run `nx @graycore/nx-remote-cache:stop` to stop it now; the next Nx command then runs without the cache.',
         ];
         return { ok, text: render(`${pc.yellow('!')} connected, but signed out ${pc.dim(`(${ms} ms)`)}`, rows, note) };
     }

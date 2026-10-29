@@ -58,7 +58,7 @@ nx-remote-cache  ✔ connected (24 ms)
   write     ✔ ok
 ```
 
-The plugin adds this target, named after the package, to the workspace's root project. Running it starts the server like any other Nx command, then writes and reads a small entry through it, as Nx would (always the same one, so checks add nothing to the container). When the cache is off, it says why, with the end of the server's log, and fails. A read-only identity shows as a warning, or as expected for the CI reader. `npx nx-remote-cache status` checks the server the last Nx command started, without starting one.
+The plugin adds this target, named after the package, to the workspace's root project. Running it starts the server like any other Nx command, then writes and reads a small entry through it, as Nx would (always the same one, so checks add nothing to the container). When the cache is off, it says why, with the end of the server's log, and fails. A read-only identity shows as a warning, or as expected for the CI reader.
 
 With the Nx daemon running (the default outside CI), the plugin's own messages go to the daemon's log (`.nx/workspace-data/d/daemon.log`), not your terminal; this target is how to see them.
 
@@ -79,7 +79,15 @@ With the Nx daemon running, the plugin runs inside the daemon and sees the envir
 The server keeps running after Nx exits, so later commands don't wait for it to start. A command reuses it while it answers and was started with the same binary and settings; otherwise the plugin starts a new one and stops the old one. Its log and state are in `.nx/gc-remote-cache/` in the workspace, which `nx reset` leaves alone.
 
 ```sh
-npx nx-remote-cache status             # check the server the last Nx command started
+nx @graycore/nx-remote-cache:stop      # stop this workspace's server
+```
+
+On Nx 20, running this target first starts a server if none is running, as any Nx command does; from Nx 21 it doesn't.
+
+The package's `nx-remote-cache` command does the same outside Nx, if npm linked it into `node_modules/.bin` (it doesn't for a package copied into `node_modules`):
+
+```sh
+npx nx-remote-cache status             # check the server the last Nx command started, without starting one
 npx nx-remote-cache stop               # stop this workspace's server
 npx nx-remote-cache generate-token     # any other arguments go to the server binary
 ```
