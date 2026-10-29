@@ -70,7 +70,7 @@ npm install -D @graycore/nx-remote-cache
 }
 ```
 
-In GitHub Actions, give the jobs that run Nx an [OIDC token](https://docs.github.com/en/actions/concepts/security/openid-connect) and the CI identities, which the plugin only takes from the environment (here from repository variables):
+In GitHub Actions, give the jobs that run Nx an [OIDC token](https://docs.github.com/en/actions/concepts/security/openid-connect) and the CI identities.
 
 ```yaml
 permissions:
@@ -86,8 +86,8 @@ Every plugin option can also come from the environment; see the [plugin's README
 
 You can check the status of your connection to the cache with:
 
-```
-nx @graycore/nx-remote-cache
+```bash
+npx nx @graycore/nx-remote-cache
 ```
 
 

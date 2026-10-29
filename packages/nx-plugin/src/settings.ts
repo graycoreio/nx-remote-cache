@@ -1,8 +1,6 @@
 /**
- * The plugin's options in nx.json. None of them are secrets. Each is overridden by its
- * environment variable (see ENV). The CI identities are only ever set through the environment
- * (TENANT_ID_ENV, WRITER_CLIENT_ID_ENV, READER_CLIENT_ID_ENV), where a workflow takes them from
- * its repository variables.
+ * The plugin's options in nx.json. These can be overridden by their
+ * environment variable (see ENV).
  */
 export interface PluginOptions {
     storageAccount?: string;
