@@ -1,0 +1,48 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "github-action",
+  "projectType": "application",
+  "sourceRoot": "packages/github-action/src",
+  "tags": [
+    "lang:typescript"
+  ],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{projectRoot}/tsconfig.json",
+        "{projectRoot}/package.json",
+        "{workspaceRoot}/packages/nx-plugin/src/binary.ts"
+      ],
+      "outputs": [
+        "{projectRoot}/dist"
+      ],
+      "options": {
+        "commands": [
+          "esbuild --outdir=dist --platform=node --target=node24 --bundle --minify src/main.ts src/post.ts",
+          "tsc --noEmit"
+        ],
+        "parallel": false,
+        "cwd": "packages/github-action"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "jest",
+        "cwd": "packages/github-action"
+      }
+    },
+    "check-dist": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build"
+      ],
+      "options": {
+        "command": "git diff --exit-code --stat -- packages/github-action/dist || (echo 'packages/github-action/dist is out of date: run `npx nx run github-action:build` and commit the result' >&2; exit 1)"
+      }
+    }
+  }
+}

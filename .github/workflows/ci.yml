@@ -64,6 +64,36 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npx nx run nx-plugin:test
 
+  github-action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx nx run-many -t test check-dist -p github-action
+
+  # Integration test of the the action in a job without `id-token: write`: 
+  github-action-no-token:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./packages/github-action
+        with:
+          tenant-id: unused
+          writer-client-id: unused
+          reader-client-id: unused
+          storage-account: unused
+          storage-container: unused
+      - name: No server started, remote cache off
+        run: |
+          if [ -n "${NX_SELF_HOSTED_REMOTE_CACHE_SERVER:-}${NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN:-}${NX_REMOTE_CACHE_LOG:-}" ]; then
+            echo "::error::expected no Nx remote cache variables and no server without a token"; exit 1
+          fi
+          if pgrep -x nx-remote-cache; then echo "::error::a server process is running"; exit 1; fi
+
   msrv:
     runs-on: ubuntu-latest
     steps:

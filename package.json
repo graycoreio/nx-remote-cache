@@ -3,7 +3,8 @@
   "private": true,
   "license": "MIT",
   "workspaces": [
-    "packages/nx-plugin"
+    "packages/nx-plugin",
+    "packages/github-action"
   ],
   "devDependencies": {
     "nx": "24.0.2"

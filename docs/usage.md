@@ -4,13 +4,14 @@ The [Nx plugin](../packages/nx-plugin) is the recommended way to use nx-remote-c
 
 ## Github actions
 
+<!-- x-release-please-start-version -->
 ```yaml
 permissions:
   id-token: write
   contents: read
 
 steps:
-  - uses: graycoreio/github-actions/nx-remote-cache@main
+  - uses: graycoreio/nx-remote-cache/packages/github-action@v0.4.2
     with:
       tenant-id: <tenantId output>
       writer-client-id: <writerClientId output>
@@ -19,8 +20,9 @@ steps:
       storage-container: <storageContainer output>
   - run: npx nx affected -t build test lint
 ```
+<!-- x-release-please-end -->
 
-The [action's README](https://github.com/graycoreio/github-actions/tree/main/nx-remote-cache) covers its inputs, fork PRs, error messages and `continue-on-error`.
+The [action's README](../packages/github-action/README.md) covers its inputs, fork PRs, error messages and `continue-on-error`.
 
 ## Developer access
 

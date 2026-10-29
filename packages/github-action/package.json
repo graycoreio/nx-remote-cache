@@ -1,0 +1,16 @@
+{
+  "name": "@graycore/nx-remote-cache-github-action",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A GitHub Action that runs nx-remote-cache inside the job, using the job's GitHub OIDC token.",
+  "license": "MIT",
+  "devDependencies": {
+    "@actions/core": "^1.11.1",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.15",
+    "typescript": "^5.9.0"
+  }
+}

@@ -31,6 +31,18 @@
           "type": "json",
           "path": "package-lock.json",
           "jsonpath": "$.packages['packages/nx-plugin'].version"
+        },
+        {
+          "type": "generic",
+          "path": "docs/usage.md"
+        },
+        {
+          "type": "generic",
+          "path": "packages/github-action/README.md"
+        },
+        {
+          "type": "generic",
+          "path": "packages/github-action/action.yml"
         }
       ]
     }

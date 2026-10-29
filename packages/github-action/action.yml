@@ -1,0 +1,30 @@
+name: Nx remote cache
+description: Run an nx-remote-cache server backed by Azure Blob Storage and configure Nx to use it. Requires `id-token: write`.
+
+inputs:
+  access:
+    description: Cache access level, one of `auto`, `read` or `write`. `auto` writes on pushes to the default branch and reads otherwise.
+    default: auto
+  tenant-id:
+    description: Azure tenant ID.
+  writer-client-id:
+    description: Client ID of the writer managed identity.
+  reader-client-id:
+    description: Client ID of the reader managed identity.
+  storage-account:
+    description: Storage account name.
+  storage-container:
+    description: Blob container name.
+  storage-prefix:
+    description: Path prefix for cache entries in the container.
+    default: v1
+  version:
+    description: nx-remote-cache version or npm dist-tag to run.
+    default: 0.4.2 # x-release-please-version
+  server-binary:
+    description: Path to a local server binary to use instead of downloading `version`.
+
+runs:
+  using: node24
+  main: dist/main.js
+  post: dist/post.js
