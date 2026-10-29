@@ -3,7 +3,9 @@
  * for this workspace and points Nx's self-hosted cache client at it.
  *
  *   // nx.json
- *   "plugins": [{ "plugin": "@graycore/nx-remote-cache", "options": { "storageAccount": "…", … } }]
+ *   "plugins": [{ "plugin": "@graycore/nx-remote-cache", "options": { "storageAccount": "…", "storageContainer": "…" } }]
+ *
+ * Every option can also come from the environment; the CI identities only do (see settings.ts).
  *
  * If the server can't start (no `az login`, no role on the container, no OIDC token), Nx runs
  * without the remote cache instead of failing: an unreachable cache would fail the whole run.

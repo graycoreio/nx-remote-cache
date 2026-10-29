@@ -1,20 +1,31 @@
-/** The plugin's options in nx.json. None of them are secrets. */
+/**
+ * The plugin's options in nx.json. These can be overridden by their
+ * environment variable (see ENV).
+ */
 export interface PluginOptions {
     storageAccount?: string;
     storageContainer?: string;
     /** Virtual directory in the container for cache entries. The server's default is `v1`. */
     storagePrefix?: string;
-    /** For GitHub Actions: the Entra tenant and the CI identities' client IDs. */
-    tenantId?: string;
-    writerClientId?: string;
-    readerClientId?: string;
     /**
      * Which CI identity to ask for: `auto` (the writer only on a push to the default branch),
-     * `read` or `write`. Azure decides what each identity may actually do. Overridden by
-     * NX_REMOTE_CACHE_ACCESS.
+     * `read` or `write`. Azure decides what each identity may actually do.
      */
     access?: Access;
 }
+
+/** The environment variable that overrides each option. */
+export const ENV = {
+    storageAccount: 'NX_REMOTE_CACHE_STORAGE_ACCOUNT',
+    storageContainer: 'NX_REMOTE_CACHE_STORAGE_CONTAINER',
+    storagePrefix: 'NX_REMOTE_CACHE_STORAGE_PREFIX',
+    access: 'NX_REMOTE_CACHE_ACCESS',
+} as const satisfies Record<keyof PluginOptions, string>;
+
+/** For GitHub Actions: the Entra tenant and the CI identities' client IDs. */
+export const TENANT_ID_ENV = 'NX_REMOTE_CACHE_TENANT_ID';
+export const WRITER_CLIENT_ID_ENV = 'NX_REMOTE_CACHE_WRITER_CLIENT_ID';
+export const READER_CLIENT_ID_ENV = 'NX_REMOTE_CACHE_READER_CLIENT_ID';
 
 export type Access = 'auto' | 'read' | 'write';
 
@@ -60,12 +71,17 @@ export function resolveSettings(
     if (env.NX_SELF_HOSTED_REMOTE_CACHE_SERVER) {
         return { disabled: 'NX_SELF_HOSTED_REMOTE_CACHE_SERVER is already set; using that server' };
     }
-    const account = options?.storageAccount;
-    const container = options?.storageContainer;
+    // An empty variable counts as unset, as GitHub expands a missing repository variable to ''.
+    const option = <K extends keyof PluginOptions>(key: K): string | undefined =>
+        env[ENV[key]] || options?.[key] || undefined;
+    const account = option('storageAccount');
+    const container = option('storageContainer');
     if (!account || !container) {
-        return { disabled: 'storageAccount and storageContainer are not configured' };
+        return {
+            disabled: `no storage configured (storageAccount and storageContainer, or ${ENV.storageAccount} and ${ENV.storageContainer})`,
+        };
     }
-    const storage: Storage = { account, container, prefix: options.storagePrefix };
+    const storage: Storage = { account, container, prefix: option('storagePrefix') };
 
     if (env.GITHUB_ACTIONS !== 'true') {
         return { settings: { ...storage, mode: 'developer_tools' } };
@@ -74,15 +90,15 @@ export function resolveSettings(
         // Also what a fork's pull request looks like: GitHub never gives those an OIDC token.
         return { disabled: 'this job has no GitHub OIDC token (it needs `permissions: id-token: write`)' };
     }
-    const access = parseAccess(env.NX_REMOTE_CACHE_ACCESS || options.access || 'auto');
+    const access = parseAccess(option('access') ?? 'auto');
     const write = wantsWrite(access, readRunContext());
-    const clientId = write ? options.writerClientId : options.readerClientId;
-    if (!options.tenantId || !clientId) {
-        return {
-            disabled: `tenantId and ${write ? 'writerClientId' : 'readerClientId'} are needed in GitHub Actions`,
-        };
+    const tenantId = env[TENANT_ID_ENV];
+    const clientIdEnv = write ? WRITER_CLIENT_ID_ENV : READER_CLIENT_ID_ENV;
+    const clientId = env[clientIdEnv];
+    if (!tenantId || !clientId) {
+        return { disabled: `${TENANT_ID_ENV} and ${clientIdEnv} are needed in GitHub Actions` };
     }
-    return { settings: { ...storage, mode: 'github', tenantId: options.tenantId, clientId, write } };
+    return { settings: { ...storage, mode: 'github', tenantId, clientId, write } };
 }
 
 function parseAccess(value: string): Access {
