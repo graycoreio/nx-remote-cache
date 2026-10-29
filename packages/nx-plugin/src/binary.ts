@@ -9,10 +9,15 @@ export function platformPackage(platform: NodeJS.Platform, arch: string): string
 /**
  * The server binary: NX_REMOTE_CACHE_BINARY if set (e.g. one built from source), otherwise the
  * one npm installed for this platform as an optional dependency.
+ *
+ * Looked up next to the plugin first, then in the workspace: when the plugin is a linked
+ * directory (`file:`, `npm link`), Node resolves from its real location, outside the workspace's
+ * node_modules where the platform package is installed.
  */
 export function resolveBinary(
     env: NodeJS.ProcessEnv,
-    resolve: (id: string) => string = require.resolve,
+    workspaceRoot?: string,
+    resolve: (id: string, paths: string[]) => string = (id, paths) => require.resolve(id, { paths }),
     platform: NodeJS.Platform = process.platform,
     arch: string = process.arch,
 ): string {
@@ -21,8 +26,10 @@ export function resolveBinary(
     }
     const pkg = platformPackage(platform, arch);
     try {
-        return resolve(`${pkg}/bin/nx-remote-cache`);
+        return resolve(`${pkg}/bin/nx-remote-cache`, [__dirname, ...(workspaceRoot ? [workspaceRoot] : [])]);
     } catch {
-        throw new Error(`${pkg} is not installed (npm skips optional dependencies with --omit=optional)`);
+        throw new Error(
+            `${pkg} is not installed: install the plugin from npm (not with --omit=optional), or set NX_REMOTE_CACHE_BINARY`,
+        );
     }
 }

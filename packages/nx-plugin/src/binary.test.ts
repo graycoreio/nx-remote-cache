@@ -4,22 +4,27 @@ import { describe, it } from 'node:test';
 import { platformPackage, resolveBinary } from './binary';
 
 describe('resolveBinary', () => {
-    it("resolves the platform package's binary", () => {
-        const resolve = (id: string) => `/node_modules/${id}`;
-        assert.equal(resolveBinary({}, resolve, 'linux', 'x64'), '/node_modules/@graycore/nx-remote-cache-linux-x64-gnu/bin/nx-remote-cache');
+    it("resolves the platform package's binary next to the plugin, then in the workspace", () => {
+        const searched: string[][] = [];
+        const resolve = (id: string, paths: string[]) => {
+            searched.push(paths);
+            return `/node_modules/${id}`;
+        };
+        assert.equal(resolveBinary({}, '/workspace', resolve, 'linux', 'x64'), '/node_modules/@graycore/nx-remote-cache-linux-x64-gnu/bin/nx-remote-cache');
+        assert.deepEqual(searched, [[__dirname, '/workspace']]);
         assert.equal(platformPackage('linux', 'arm64'), '@graycore/nx-remote-cache-linux-arm64-gnu');
         assert.equal(platformPackage('darwin', 'x64'), '@graycore/nx-remote-cache-darwin-universal');
     });
 
     it('prefers NX_REMOTE_CACHE_BINARY', () => {
-        assert.equal(resolveBinary({ NX_REMOTE_CACHE_BINARY: '/build/nx-remote-cache' }, () => assert.fail()), '/build/nx-remote-cache');
+        assert.equal(resolveBinary({ NX_REMOTE_CACHE_BINARY: '/build/nx-remote-cache' }, '/workspace', () => assert.fail()), '/build/nx-remote-cache');
     });
 
     it('explains a missing platform package or an unsupported platform', () => {
         const missing = () => {
             throw new Error('MODULE_NOT_FOUND');
         };
-        assert.throws(() => resolveBinary({}, missing, 'linux', 'x64'), /is not installed/);
+        assert.throws(() => resolveBinary({}, '/workspace', missing, 'linux', 'x64'), /is not installed/);
         assert.throws(() => platformPackage('win32', 'x64'), /no server binary for win32\/x64/);
     });
 });

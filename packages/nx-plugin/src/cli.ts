@@ -33,7 +33,13 @@ async function main(args: string[]): Promise<number> {
         console.log(stopped ? 'stopped the nx-remote-cache server' : 'no nx-remote-cache server is running');
         return 0;
     }
-    const result = spawnSync(resolveBinary(process.env), args, { stdio: 'inherit' });
+    let root: string | undefined;
+    try {
+        root = findWorkspaceRoot(process.cwd());
+    } catch {
+        // Outside a workspace, the binary can still be found next to the plugin.
+    }
+    const result = spawnSync(resolveBinary(process.env, root), args, { stdio: 'inherit' });
     if (result.error) throw result.error;
     return result.status ?? 1;
 }
