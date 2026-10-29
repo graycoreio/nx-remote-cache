@@ -43,3 +43,5 @@ The [Terraform module](../packages/terraform) grants these roles to the groups i
 
 > [!WARNING]
 > Consider giving no developers write access at all. Developers still get cache hits from CI, but their own builds won't be shared with each other, so local builds are slower. If that trade-off doesn't work for you, look at [Nx Cloud](https://nx.dev/nx-cloud).
+
+If you need to take away someone's write access, or suspect the cache has been poisoned, see [Cache poisoning](cache-poisoning.md).

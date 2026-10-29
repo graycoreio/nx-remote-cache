@@ -113,6 +113,7 @@ To run the server yourself instead, with the GitHub Action, the binary or Docker
 - [Deploying to Azure](docs/deploy.md)
 - [Usage](docs/usage.md)
 - [Security model](docs/security.md)
+- [Cache poisoning](docs/cache-poisoning.md)
 - [Development](docs/development.md)
 
 ## Upgrading
