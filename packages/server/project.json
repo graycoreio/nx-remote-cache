@@ -3,7 +3,9 @@
   "name": "server",
   "projectType": "application",
   "sourceRoot": "packages/server/src",
-  "tags": ["lang:rust"],
+  "tags": [
+    "lang:rust"
+  ],
   "targets": {
     "build": {
       "executor": "nx:run-commands",
@@ -14,6 +16,12 @@
         "release": {
           "command": "cargo build --release --locked -p nx-remote-cache"
         }
+      }
+    },
+    "archive": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "packages/server/scripts/archive-host.sh"
       }
     },
     "serve": {
@@ -31,7 +39,10 @@
     },
     "lint": {
       "executor": "nx:run-commands",
-      "inputs": ["default", "rust"],
+      "inputs": [
+        "default",
+        "rust"
+      ],
       "options": {
         "commands": [
           "cargo fmt -p nx-remote-cache --check",
@@ -42,7 +53,10 @@
     },
     "test": {
       "executor": "nx:run-commands",
-      "inputs": ["default", "rust"],
+      "inputs": [
+        "default",
+        "rust"
+      ],
       "options": {
         "command": "packages/server/scripts/azurite-test.sh"
       }
