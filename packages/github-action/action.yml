@@ -1,5 +1,5 @@
 name: Nx remote cache
-description: Run an nx-remote-cache server backed by Azure Blob Storage and configure Nx to use it. Requires `id-token: write`.
+description: "Run an nx-remote-cache server backed by Azure Blob Storage and configure Nx to use it. Requires `id-token: write`."
 
 inputs:
   access:
