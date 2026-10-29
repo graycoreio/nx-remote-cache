@@ -96,7 +96,7 @@ export async function preTasksExecution(options: PluginOptions | undefined, cont
         settings = resolved.settings;
         const server = await ensureServer(settings, {
             stateDir,
-            binary: resolveBinary(env),
+            binary: resolveBinary(env, context.workspaceRoot),
             env,
             oidcToken: settings.mode === 'github' ? await fetchOidcToken(env) : undefined,
         });
