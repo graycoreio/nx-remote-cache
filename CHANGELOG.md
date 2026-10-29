@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/graycoreio/nx-remote-cache/compare/v0.4.1...v0.4.2) (2026-10-29)
+
+
+### Bug Fixes
+
+* **ci:** publish to npm with trusted publishing ([0a2d412](https://github.com/graycoreio/nx-remote-cache/commit/0a2d4127aaa175f27055e4e749f1a07d289918a8))
+
 ## [0.4.1](https://github.com/graycoreio/nx-remote-cache/compare/v0.4.0...v0.4.1) (2026-10-29)
 
 
