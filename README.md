@@ -107,7 +107,6 @@ To run the server yourself instead, with the GitHub Action, the binary or Docker
 
 ## Helpful Links
 
-- [Install](docs/install.md)
 - [Configuration](docs/configuration.md)
 - [How it works](docs/how-it-works.md)
 - [Deploying to Azure](docs/deploy.md)

@@ -121,7 +121,7 @@ docker compose -f workspace.docker-compose.yml exec az az login --use-device-cod
 
 ### Binary
 
-You can also run a [release binary](install.md) directly, using your own Azure CLI login.
+You can also run a release binary directly, using your own Azure CLI login.
 
 ```sh
 cp packages/server/config/developer.example.toml config.toml   # fill in the <values>
