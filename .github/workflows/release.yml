@@ -62,7 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # Keep in step with the Dockerfile's rust image.
-      - uses: dtolnay/rust-toolchain@1.99
+      - uses: dtolnay/rust-toolchain@1.120
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
