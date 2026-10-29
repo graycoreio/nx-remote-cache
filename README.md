@@ -8,16 +8,18 @@
 
 </div>
 
-# nx-remote-cache
+# @graycore/nx-remote-cache
 
-> A self-hosted Nx remote cache on Azure Blob Storage, with nothing to host and no license fees.
+> A self-hosted Nx remote cache implementation on Azure Blob Storage
 
-- 🏠 Runs next to Nx, in the CI job or on your laptop
-- 🔑 Uses the caller's own Azure identity: GitHub OIDC in CI, `az login` locally
-- 🔒 Write-once entries, never overwritten
-- 🚫 No shared keys, no connection strings
-- ⚡ Works with Nx's built-in client
-- 🦀 One static Rust binary, or a container image
+This project provides:
+
+- A platform-specific rust server that runs next to Nx
+- It uses the caller's own Azure identity, changing depending upon context: GitHub OIDC in CI, `az login` locally
+- Immutable Storage for write-once entries
+- No connection strings
+- Works with Nx's built-in client
+- A Docker-container image that you can if you cannot run the server due to machine permissions
 
 ## Nx Version Support
 
@@ -28,13 +30,25 @@
 
 ## Purpose
 
-You can use `nx-remote-cache` to replace `@nx/azure-cache`.
-
-Nx deprecated the `@nx/azure-cache` package after [CVE-2025-36852 (CREEP)](https://nx.dev/docs/reference/deprecated/self-hosted-cache-packages). They did this for a variety of reasons. Chiefly, their docs guided every job to share one read/write credential, potentially allowing pull requests to poison the cache for the default branch. Luckily, Azure has a authentication model that allows you to work around CREEP while still self-hosting your own cache.
+You can use `@graycore/nx-remote-cache` to replace `@nx/azure-cache`.
 
 This project is a Rust implementation of Nx's OpenAPI spec specifically built around [Azure Blob storage](https://azure.microsoft.com/en-us/products/storage/blobs), authenticating via OIDC.
 
 It implements Nx's [remote cache spec](https://nx.dev/docs/kb/self-hosted-caching) and is intended to run either inside each CI job or as a daemon on each developer's machine.
+
+
+## CREEP
+
+Nx deprecated the `@nx/azure-cache` package after [CVE-2025-36852 (CREEP)](https://nx.dev/docs/reference/deprecated/self-hosted-cache-packages). They did this for a variety of reasons:
+
+1. Their docs guided every job to share one read/write credential, allowing pull requests to poison the cache for the default branch. 
+2. To achieve "optimal" caching capabilities, one needs to enable cache scoping on Pull Requests
+   1. It is difficult to do this "out-of-the-box" on Azure without substantial headache of operating your own remote caching server.
+3. It makes more sense to just use [Nx Cloud](https://nx.dev/nx-cloud) rather than build and maintain bespoke self-hosted servers for all platforms.
+
+This project deliberately trades "optimal" caching for "good enough" caching at a much lower cost. Instead of scoping the cache per pull request, pull requests can only read from it. They reuse everything the default branch has already built, but nothing they build themselves is cached, so re-running a pull request, or a second pull request with the same changes, builds those tasks again. In exchange, there is no shared cache server to operate and no Nx Cloud subscription: you pay only for Azure Blob Storage. If this trade-off isn't worth it for you, then just use [Nx Cloud](https://nx.dev/nx-cloud).
+
+For further information on how we overcome CREEP, please see the [security guide](docs/security.md#creep-cve-2025-36852).
 
 ## Getting Started
 
