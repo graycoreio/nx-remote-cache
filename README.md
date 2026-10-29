@@ -54,15 +54,15 @@ For further information on how we overcome CREEP, please see the [security guide
 
 First, [deploy](docs/deploy.md) the storage container and the CI identities with the [Terraform module](packages/terraform).
 
-Then add the [`@graycoreio/nx-remote-cache`](packages/nx-plugin) plugin to your workspace. It bundles the server and starts it whenever Nx runs tasks, in CI (GitHub OIDC) and locally (`az login`), so neither needs any other setup:
+Then add the [`@graycore/nx-remote-cache`](packages/nx-plugin) plugin to your workspace. It bundles the server and starts it whenever Nx runs tasks, in CI (GitHub OIDC) and locally (`az login`), so neither needs any other setup:
 
 ```sh
-npm install -D @graycoreio/nx-remote-cache
+npm install -D @graycore/nx-remote-cache
 ```
 
 ```jsonc
 // nx.json, with the deployment outputs
-"plugins": [{ "plugin": "@graycoreio/nx-remote-cache", "options": { "storageAccount": "<storageAccount>", "storageContainer": "<storageContainer>", "tenantId": "<tenantId>", "writerClientId": "<writerClientId>", "readerClientId": "<readerClientId>" } }]
+"plugins": [{ "plugin": "@graycore/nx-remote-cache", "options": { "storageAccount": "<storageAccount>", "storageContainer": "<storageContainer>", "tenantId": "<tenantId>", "writerClientId": "<writerClientId>", "readerClientId": "<readerClientId>" } }]
 ```
 
 In GitHub Actions, give the jobs that run Nx an [OIDC token](https://docs.github.com/en/actions/concepts/security/openid-connect):
@@ -73,7 +73,7 @@ permissions:
   contents: read
 ```
 
-Check that it works with `nx @graycoreio/nx-remote-cache`. The [plugin's README](packages/nx-plugin) covers its options and environment variables.
+Check that it works with `nx @graycore/nx-remote-cache`. The [plugin's README](packages/nx-plugin) covers its options and environment variables.
 
 To run the server yourself instead, with the GitHub Action, the binary or Docker, see [Usage](docs/usage.md).
 

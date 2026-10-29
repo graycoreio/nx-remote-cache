@@ -6,9 +6,9 @@ import { platformPackage, resolveBinary } from './binary';
 describe('resolveBinary', () => {
     it("resolves the platform package's binary", () => {
         const resolve = (id: string) => `/node_modules/${id}`;
-        assert.equal(resolveBinary({}, resolve, 'linux', 'x64'), '/node_modules/@graycoreio/nx-remote-cache-linux-x64-gnu/bin/nx-remote-cache');
-        assert.equal(platformPackage('linux', 'arm64'), '@graycoreio/nx-remote-cache-linux-arm64-gnu');
-        assert.equal(platformPackage('darwin', 'x64'), '@graycoreio/nx-remote-cache-darwin-universal');
+        assert.equal(resolveBinary({}, resolve, 'linux', 'x64'), '/node_modules/@graycore/nx-remote-cache-linux-x64-gnu/bin/nx-remote-cache');
+        assert.equal(platformPackage('linux', 'arm64'), '@graycore/nx-remote-cache-linux-arm64-gnu');
+        assert.equal(platformPackage('darwin', 'x64'), '@graycore/nx-remote-cache-darwin-universal');
     });
 
     it('prefers NX_REMOTE_CACHE_BINARY', () => {

@@ -3,12 +3,12 @@
  * for this workspace and points Nx's self-hosted cache client at it.
  *
  *   // nx.json
- *   "plugins": [{ "plugin": "@graycoreio/nx-remote-cache", "options": { "storageAccount": "…", … } }]
+ *   "plugins": [{ "plugin": "@graycore/nx-remote-cache", "options": { "storageAccount": "…", … } }]
  *
  * If the server can't start (no `az login`, no role on the container, no OIDC token), Nx runs
  * without the remote cache instead of failing: an unreachable cache would fail the whole run.
  *
- * It also adds a target named after the package to the root project: `nx @graycoreio/nx-remote-cache`
+ * It also adds a target named after the package to the root project: `nx @graycore/nx-remote-cache`
  * checks that the cache works and says why when it doesn't.
  */
 import * as fs from 'fs';
@@ -32,7 +32,7 @@ interface CreateNodesContext {
     readonly workspaceRoot: string;
 }
 
-export const STATUS_TARGET = '@graycoreio/nx-remote-cache';
+export const STATUS_TARGET = '@graycore/nx-remote-cache';
 
 // The hook has no output of its own with the Nx daemon (it goes to the daemon's log), so the
 // status lives in a target: running it runs the hook, and Nx shows a task's output.

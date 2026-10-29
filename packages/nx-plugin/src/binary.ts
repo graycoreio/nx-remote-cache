@@ -1,8 +1,8 @@
 /** The package holding the server binary for a platform, as Node reports it. */
 export function platformPackage(platform: NodeJS.Platform, arch: string): string {
-    if (platform === 'linux' && arch === 'x64') return '@graycoreio/nx-remote-cache-linux-x64-gnu';
-    if (platform === 'linux' && arch === 'arm64') return '@graycoreio/nx-remote-cache-linux-arm64-gnu';
-    if (platform === 'darwin') return '@graycoreio/nx-remote-cache-darwin-universal';
+    if (platform === 'linux' && arch === 'x64') return '@graycore/nx-remote-cache-linux-x64-gnu';
+    if (platform === 'linux' && arch === 'arm64') return '@graycore/nx-remote-cache-linux-arm64-gnu';
+    if (platform === 'darwin') return '@graycore/nx-remote-cache-darwin-universal';
     throw new Error(`nx-remote-cache has no server binary for ${platform}/${arch} (supported: Linux x64 and arm64, macOS)`);
 }
 

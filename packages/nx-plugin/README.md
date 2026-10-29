@@ -1,11 +1,11 @@
-# @graycoreio/nx-remote-cache
+# @graycore/nx-remote-cache
 
 An Nx plugin that gives a workspace a remote cache on Azure Blob Storage with no other setup. Before Nx runs tasks, it makes sure an [nx-remote-cache](https://github.com/graycoreio/nx-remote-cache) server is running locally for the workspace, and points Nx's self-hosted cache client at it.
 
 ## Setup
 
 ```sh
-npm install -D @graycoreio/nx-remote-cache
+npm install -D @graycore/nx-remote-cache
 ```
 
 ```jsonc
@@ -13,7 +13,7 @@ npm install -D @graycoreio/nx-remote-cache
 {
   "plugins": [
     {
-      "plugin": "@graycoreio/nx-remote-cache",
+      "plugin": "@graycore/nx-remote-cache",
       "options": {
         "storageAccount": "<storage account>",
         "storageContainer": "<container>",
@@ -46,7 +46,7 @@ If the server can't start (no `az login`, no role on the container, no OIDC toke
 ## Checking the cache
 
 ```sh
-nx @graycoreio/nx-remote-cache
+nx @graycore/nx-remote-cache
 ```
 
 ```

@@ -8,7 +8,7 @@ This repository is an [Nx](https://nx.dev) workspace (`npm install` once) and a 
 | ----------- | -------------------- | ------------------------------------------------------------ |
 | `server`    | `packages/server`    | The `nx-remote-cache` crate, its Dockerfile and Compose stacks |
 | `terraform` | `packages/terraform` | The Azure Terraform module                                   |
-| `nx-plugin` | `packages/nx-plugin` | The `@graycoreio/nx-remote-cache` Nx plugin (npm)            |
+| `nx-plugin` | `packages/nx-plugin` | The `@graycore/nx-remote-cache` Nx plugin (npm)            |
 
 Run any target with `npx nx run <project>:<target>`, e.g. `npx nx run server:test`. `npx nx show project <project>` lists a project's targets.
 

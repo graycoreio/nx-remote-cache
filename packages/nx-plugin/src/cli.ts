@@ -22,7 +22,7 @@ function findWorkspaceRoot(dir: string): string {
 
 async function main(args: string[]): Promise<number> {
     if (args[0] === 'status') {
-        // Nx sets NX_WORKSPACE_ROOT for tasks, e.g. `nx @graycoreio/nx-remote-cache`.
+        // Nx sets NX_WORKSPACE_ROOT for tasks, e.g. `nx @graycore/nx-remote-cache`.
         const root = process.env.NX_WORKSPACE_ROOT ?? findWorkspaceRoot(process.cwd());
         const result = await status({ stateDir: stateDirFor(root), env: process.env });
         process.stdout.write(result.text);

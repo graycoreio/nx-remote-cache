@@ -8,7 +8,7 @@
 // machine's.
 // → <out-dir>/<one dir per platform package>, then <out-dir>/nx-remote-cache (the plugin, built),
 //   each named after its package without the scope (e.g. nx-remote-cache-linux-x64-gnu), so it can
-//   be copied straight into node_modules/@graycoreio, and ready for `npm publish`. Platform packages are listed first in <out-dir>/order.txt,
+//   be copied straight into node_modules/@graycore, and ready for `npm publish`. Platform packages are listed first in <out-dir>/order.txt,
 //   because the plugin's optional dependencies must exist before it is published.
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
