@@ -21,5 +21,8 @@
     "validate": {
       "cache": true
     }
+  },
+  "tui": {
+    "enabled": false
   }
 }
