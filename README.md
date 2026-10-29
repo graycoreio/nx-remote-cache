@@ -43,7 +43,7 @@ Nx deprecated the `@nx/azure-cache` package after [CVE-2025-36852 (CREEP)](https
 
 This project deliberately trades "optimal" caching for "good enough" caching at a much lower cost. Instead of scoping the cache per pull request, pull requests can only read from it. They reuse everything the default branch has already built, but nothing they build themselves is cached, so re-running a pull request, or a second pull request with the same changes, builds those tasks again. In exchange, there is no shared cache server to operate and no Nx Cloud subscription: you pay only for Azure Blob Storage. If this trade-off isn't worth it for you, then just use [Nx Cloud](https://nx.dev/nx-cloud).
 
-For further information on how we overcome CREEP, please see the [security guide](docs/security.md#creep-cve-2025-36852).
+For further information on how we overcome CREEP, please see the [security guide](docs/security-model.md#creep-cve-2025-36852).
 
 ## Getting Started
 
@@ -101,7 +101,7 @@ To run the server yourself instead, with the GitHub Action, the binary or Docker
 
 ## Features
 
-- [Write-once cache entries](docs/security.md)
+- [Write-once cache entries](docs/security-model.md#immutability)
 - [Separate reader and writer identities](docs/deploy.md)
 - [No secrets in config](docs/server-configuration.md)
 - [Streaming uploads and downloads](docs/how-it-works.md)
@@ -113,7 +113,7 @@ To run the server yourself instead, with the GitHub Action, the binary or Docker
 - [How it works](docs/how-it-works.md)
 - [Deploying to Azure](docs/deploy.md)
 - [Usage](docs/usage.md)
-- [Security model](docs/security.md)
+- [Security model](docs/security-model.md)
 - [Cache poisoning](docs/cache-poisoning.md)
 - [Development](docs/development.md)
 

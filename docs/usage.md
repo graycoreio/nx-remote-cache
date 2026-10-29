@@ -24,7 +24,7 @@ The [action's README](https://github.com/graycoreio/github-actions/tree/main/nx-
 
 ## Developer access
 
-Each developer runs their own instance of the server, which signs in to Azure with their `az login`. Their role on the container decides whether they can write. See [Developer writes](security.md#developer-writes) for which roles to grant.
+Each developer runs their own instance of the server, which signs in to Azure with their `az login`. Their role on the container decides whether they can write. See [Developer writes](security-model.md#developer-writes) for which roles to grant.
 
 ### Docker
 
