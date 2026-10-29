@@ -101,13 +101,13 @@ To run the server yourself instead, with the GitHub Action, the binary or Docker
 
 - [Write-once cache entries](docs/security.md)
 - [Separate reader and writer identities](docs/deploy.md)
-- [No secrets in config](docs/configuration.md)
+- [No secrets in config](docs/server-configuration.md)
 - [Streaming uploads and downloads](docs/how-it-works.md)
 - [Fails fast on bad storage access](docs/how-it-works.md)
 
 ## Helpful Links
 
-- [Configuration](docs/configuration.md)
+- [Configuration](docs/server-configuration.md)
 - [How it works](docs/how-it-works.md)
 - [Deploying to Azure](docs/deploy.md)
 - [Usage](docs/usage.md)

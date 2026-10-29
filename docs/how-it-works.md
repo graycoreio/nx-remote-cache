@@ -22,7 +22,7 @@ The server only listens on `127.0.0.1`, so the token's job is to keep other loca
 
 ## The server to Azure
 
-The server uses the single auth mode named in [`storage.auth`](configuration.md#storage). It does not fall back to other credentials.
+The server uses the single auth mode named in [`storage.auth`](server-configuration.md#storage). It does not fall back to other credentials.
 
 | Where it runs           | `storage.auth.mode`                                                                                |
 | ----------------------- | -------------------------------------------------------------------------------------------------- |
