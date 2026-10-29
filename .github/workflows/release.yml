@@ -158,6 +158,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -188,7 +189,6 @@ jobs:
       - name: Publish
         if: github.ref_type == 'tag'
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           # Prereleases go to `next`, so `latest` stays on the last stable release.
           DIST_TAG: ${{ steps.is-prerelease.outputs.result == 'true' && 'next' || 'latest' }}
         run: |
