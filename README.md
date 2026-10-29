@@ -25,7 +25,7 @@ This project provides:
 
 ## Purpose
 
-You can use `@graycore/nx-remote-cache` to replace `@nx/azure-cache`.
+You can use `@graycore/nx-remote-cache` to replace `@nx/azure-cache`. See the [migration guide](docs/migrating.md).
 
 This project is a Rust implementation of Nx's OpenAPI spec specifically built around [Azure Blob storage](https://azure.microsoft.com/en-us/products/storage/blobs), authenticating via OIDC.
 
