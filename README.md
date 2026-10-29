@@ -63,24 +63,26 @@ npm install -D @graycore/nx-remote-cache
       "plugin": "@graycore/nx-remote-cache",
       "options": {
         "storageAccount": "<storageAccount>",
-        "storageContainer": "<storageContainer>",
-        // For GitHub Actions:
-        "tenantId": "<tenantId>",
-        "writerClientId": "<writerClientId>",
-        "readerClientId": "<readerClientId>"
+        "storageContainer": "<storageContainer>"
       }
     }
   ]
 }
 ```
 
-In GitHub Actions, give the jobs that run Nx an [OIDC token](https://docs.github.com/en/actions/concepts/security/openid-connect):
+In GitHub Actions, give the jobs that run Nx an [OIDC token](https://docs.github.com/en/actions/concepts/security/openid-connect) and the CI identities, which the plugin only takes from the environment (here from repository variables):
 
 ```yaml
 permissions:
   id-token: write
   contents: read
+env:
+  NX_REMOTE_CACHE_TENANT_ID: ${{ vars.NX_CACHE_TENANT_ID }}
+  NX_REMOTE_CACHE_WRITER_CLIENT_ID: ${{ vars.NX_CACHE_WRITER_CLIENT_ID }}
+  NX_REMOTE_CACHE_READER_CLIENT_ID: ${{ vars.NX_CACHE_READER_CLIENT_ID }}
 ```
+
+Every plugin option can also come from the environment; see the [plugin's README](packages/nx-plugin/README.md#setup).
 
 You can check the status of your connection to the cache with:
 
