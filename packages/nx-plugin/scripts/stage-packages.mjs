@@ -7,7 +7,8 @@
 // required, except for `local`, which stages the platforms it has archives for, e.g. only this
 // machine's.
 // → <out-dir>/<one dir per platform package>, then <out-dir>/nx-remote-cache (the plugin, built),
-//   each ready for `npm publish`. Platform packages are listed first in <out-dir>/order.txt,
+//   each named after its package without the scope (e.g. nx-remote-cache-linux-x64-gnu), so it can
+//   be copied straight into node_modules/@graycoreio, and ready for `npm publish`. Platform packages are listed first in <out-dir>/order.txt,
 //   because the plugin's optional dependencies must exist before it is published.
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -83,7 +84,7 @@ for (const [target, p] of Object.entries(PLATFORMS)) {
     }
     optionalDependencies[name] = version;
     const archive = archiveOf(target);
-    const dir = path.join(out, p.suffix);
+    const dir = path.join(out, path.basename(name));
     fs.mkdirSync(path.join(dir, 'bin'), { recursive: true });
     execFileSync('tar', ['-xzf', archive, '-C', path.join(dir, 'bin'), 'nx-remote-cache']);
     execFileSync('tar', ['-xzf', archive, '-C', dir, 'LICENSE']);
@@ -104,7 +105,7 @@ for (const [target, p] of Object.entries(PLATFORMS)) {
 }
 
 // The plugin, depending on the platform packages: npm installs the one matching each machine.
-const dir = path.join(out, 'nx-remote-cache');
+const dir = path.join(out, path.basename(plugin.name));
 fs.mkdirSync(dir, { recursive: true });
 fs.cpSync(path.join(pluginDir, 'dist'), path.join(dir, 'dist'), {
     recursive: true,
