@@ -43,6 +43,25 @@ None of these are secrets: what anyone can do is decided by their role on the co
 
 If the server can't start (no `az login`, no role on the container, no OIDC token), Nx runs without the remote cache instead of failing, and says why.
 
+## Checking the cache
+
+```sh
+nx @graycoreio/nx-remote-cache
+```
+
+```
+nx-remote-cache  ✔ connected (24 ms)
+  storage   mystorageacct/nx-cache/v1
+  identity  az login · you@example.com
+  server    http://127.0.0.1:41237 (pid 1234)
+  read      ✔ ok
+  write     ✔ ok
+```
+
+The plugin adds this target, named after the package, to the workspace's root project. Running it starts the server like any other Nx command, then writes and reads a small entry through it, as Nx would (always the same one, so checks add nothing to the container). When the cache is off, it says why, with the end of the server's log, and fails. A read-only identity shows as a warning, or as expected for the CI reader. `npx nx-remote-cache status` checks the server the last Nx command started, without starting one.
+
+With the Nx daemon running (the default outside CI), the plugin's own messages go to the daemon's log (`.nx/workspace-data/d/daemon.log`), not your terminal; this target is how to see them.
+
 ## Environment
 
 | Variable | |
@@ -60,6 +79,7 @@ With the Nx daemon running, the plugin runs inside the daemon and sees the envir
 The server keeps running after Nx exits, so later commands don't wait for it to start. A command reuses it while it answers and was started with the same binary and settings; otherwise the plugin starts a new one and stops the old one. Its log and state are in `.nx/gc-remote-cache/` in the workspace, which `nx reset` leaves alone.
 
 ```sh
+npx nx-remote-cache status             # check the server the last Nx command started
 npx nx-remote-cache stop               # stop this workspace's server
 npx nx-remote-cache generate-token     # any other arguments go to the server binary
 ```

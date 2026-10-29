@@ -170,7 +170,7 @@ export async function stopServer(stateDir: string, kill = killServer, fetchImpl:
     return false;
 }
 
-function readState(stateDir: string): Server | undefined {
+export function readState(stateDir: string): Server | undefined {
     try {
         return JSON.parse(fs.readFileSync(path.join(stateDir, 'state.json'), 'utf8'));
     } catch {
