@@ -21,13 +21,6 @@ This project provides:
 - Works with Nx's built-in client
 - A Docker-container image that you can if you cannot run the server due to machine permissions
 
-## Nx Version Support
-
-![Nx 23 Supported](https://img.shields.io/badge/Nx-23-brightgreen.svg?labelColor=2f2b2f&logo=nx&logoColor=white&color=464246&longCache=true&style=flat)
-
-> [!NOTE]
-> Needs Nx 20.8 or later.
-
 ## Purpose
 
 You can use `@graycore/nx-remote-cache` to replace `@nx/azure-cache`.
