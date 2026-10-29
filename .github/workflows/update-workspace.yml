@@ -1,0 +1,89 @@
+name: update-workspace
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Run every day at 5AM UTC (12AM EST)
+    - cron: 0 5 * * *
+
+env:
+  NX_DAEMON: 'false'
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      MIGRATE_LOG_FILE: migrate.log
+    steps:
+      - uses: actions/checkout@v7.0.1
+        name: Checkout main
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.GRAYCORE_GITHUB_TOKEN }}
+
+      - name: Set branch name
+        id: branch-name
+        run: echo "BRANCH_NAME=graybot-update-workspace" >> $GITHUB_OUTPUT
+
+      - name: Create update branch
+        run: |
+          git checkout -b ${{ steps.branch-name.outputs.BRANCH_NAME }}
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Run nx migrate
+        id: nx-migrate
+        run: |
+          echo "{\"migrations\": []}" > migrations.json
+          npx nx migrate latest >> $MIGRATE_LOG_FILE
+          npx nx migrate --run-migrations >> $MIGRATE_LOG_FILE
+          npm install --package-lock-only
+
+      - name: Get migrate logs on failure
+        if: ${{ failure() }}
+        run: cat $MIGRATE_LOG_FILE
+
+      - name: Has local changes
+        id: local-changes
+        run: |
+          if git diff --quiet --exit-code;
+          then
+            echo "HAS_LOCAL_CHANGES=false" >> $GITHUB_OUTPUT
+          else
+            echo "HAS_LOCAL_CHANGES=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit changes
+        if: ${{ steps.local-changes.outputs.HAS_LOCAL_CHANGES == 'true' }}
+        env:
+          GRAYBOT_GPG_KEY: ${{ secrets.GRAYBOT_GPG_KEY }}
+        run: |
+          # Import the private GPG key
+          echo "$GRAYBOT_GPG_KEY" | gpg --batch --import
+
+          export GPG_KEY_ID=$(gpg --list-secret-keys --keyid-format LONG | grep sec | awk '{print $2}' | cut -d/ -f2)
+          git config --global user.signingkey $GPG_KEY_ID
+          git config --global commit.gpgSign true
+          git config --global user.email "automation@graycore.io"
+          git config --global user.name "Beep Boop"
+          git add .
+          git commit -m  "chore: update workspace"
+          git push -u -f origin ${{ steps.branch-name.outputs.BRANCH_NAME }}
+
+      - name: Create pull request
+        if: ${{ steps.local-changes.outputs.HAS_LOCAL_CHANGES == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GRAYCORE_GITHUB_TOKEN }}
+        run: |
+          PR_URL="$(gh pr list --head "${{ steps.branch-name.outputs.BRANCH_NAME }}" --state open --json url --jq .[].url)"
+          if [[ -n "${PR_URL}" ]]; then
+              echo "PR already exists -> ${PR_URL}"
+              exit 0
+          else
+              gh pr create -H ${{ steps.branch-name.outputs.BRANCH_NAME }} -B main --title "chore: update workspace" -F $MIGRATE_LOG_FILE
+          fi
