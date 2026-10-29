@@ -73,6 +73,15 @@ describe('status', () => {
         assert.match(plain(result.text), /identity +az login · me@example\.com/);
     });
 
+    it('warns when the server outlives an az logout', async () => {
+        writeLastRun(stateDir, { ok: true, message: 'connected', settings: local });
+        const result = await status({ stateDir, env, fetchImpl: serverAnswering(409, 200).fetchImpl, azAccount: () => undefined });
+        assert.equal(result.ok, true);
+        assert.match(plain(result.text), /connected, but signed out/);
+        assert.match(plain(result.text), /identity +! az login: signed out/);
+        assert.match(plain(result.text), /nx-remote-cache stop/);
+    });
+
     it("says why the cache is off, from the hook's last run", async () => {
         writeLastRun(stateDir, { ok: false, message: 'the server did not start; its log:\nplease run az login', settings: local });
         const result = await status({ stateDir, env: {}, fetchImpl: serverAnswering(200, 200).fetchImpl, azAccount: () => undefined });

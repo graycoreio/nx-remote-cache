@@ -94,7 +94,7 @@ export interface StatusDeps {
     stateDir: string;
     env: NodeJS.ProcessEnv;
     fetchImpl?: typeof fetch;
-    /** The signed-in Azure CLI account, for display. */
+    /** The signed-in Azure CLI account; undefined when signed out. */
     azAccount?: () => string | undefined;
 }
 
@@ -110,9 +110,18 @@ export async function status(deps: StatusDeps): Promise<{ ok: boolean; text: str
     const token = env.NX_SELF_HOSTED_REMOTE_CACHE_SERVER ? env.NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN : running?.token;
 
     const rows: [string, string][] = [];
+    // A running server keeps the token it got from `az login` until it expires, so it still
+    // works for a while after `az logout`.
+    let signedOut = false;
     if (settings) {
         rows.push(['storage', [settings.account, settings.container, settings.prefix ?? 'v1'].join('/')]);
-        rows.push(['identity', identity(settings, deps.azAccount ?? azAccount)]);
+        if (settings.mode === 'github') {
+            rows.push(['identity', `GitHub OIDC → ${settings.write ? 'writer' : 'reader'} identity ${pc.dim(settings.clientId)}`]);
+        } else {
+            const who = (deps.azAccount ?? azAccount)();
+            signedOut = !who;
+            rows.push(['identity', who ? `az login · ${who}` : mark({ outcome: 'warn', detail: 'az login: signed out' })]);
+        }
     }
 
     if (!url || (last && !last.ok && !env.NX_SELF_HOSTED_REMOTE_CACHE_SERVER)) {
@@ -128,16 +137,17 @@ export async function status(deps: StatusDeps): Promise<{ ok: boolean; text: str
     const ms = Date.now() - started;
     rows.push(['read', mark(read)], ['write', mark(write)]);
     const ok = read.outcome === 'ok';
-    const headline = ok ? `${pc.green('✔')} connected ${pc.dim(`(${ms} ms)`)}` : `${pc.red('✖')} not working`;
-    return { ok, text: render(headline, rows, []) };
-}
-
-function identity(settings: Settings, account: () => string | undefined): string {
-    if (settings.mode === 'github') {
-        return `GitHub OIDC → ${settings.write ? 'writer' : 'reader'} identity ${pc.dim(settings.clientId)}`;
+    if (!ok) {
+        return { ok, text: render(`${pc.red('✖')} not working`, rows, []) };
     }
-    const who = account();
-    return who ? `az login · ${who}` : 'az login';
+    if (signedOut) {
+        const note = [
+            "The server still uses the token from your last az login until it expires (up to about an hour).",
+            'Run `npx nx-remote-cache stop` to stop it now; the next Nx command then runs without the cache.',
+        ];
+        return { ok, text: render(`${pc.yellow('!')} connected, but signed out ${pc.dim(`(${ms} ms)`)}`, rows, note) };
+    }
+    return { ok, text: render(`${pc.green('✔')} connected ${pc.dim(`(${ms} ms)`)}`, rows, []) };
 }
 
 function azAccount(): string | undefined {
