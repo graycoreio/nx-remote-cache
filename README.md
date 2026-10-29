@@ -55,7 +55,21 @@ npm install -D @graycore/nx-remote-cache
 
 ```jsonc
 // nx.json, with the deployment outputs
-"plugins": [{ "plugin": "@graycore/nx-remote-cache", "options": { "storageAccount": "<storageAccount>", "storageContainer": "<storageContainer>", "tenantId": "<tenantId>", "writerClientId": "<writerClientId>", "readerClientId": "<readerClientId>" } }]
+{
+  "plugins": [
+    {
+      "plugin": "@graycore/nx-remote-cache",
+      "options": {
+        "storageAccount": "<storageAccount>",
+        "storageContainer": "<storageContainer>",
+        // For GitHub Actions:
+        "tenantId": "<tenantId>",
+        "writerClientId": "<writerClientId>",
+        "readerClientId": "<readerClientId>"
+      }
+    }
+  ]
+}
 ```
 
 In GitHub Actions, give the jobs that run Nx an [OIDC token](https://docs.github.com/en/actions/concepts/security/openid-connect):
