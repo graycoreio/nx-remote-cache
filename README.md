@@ -10,46 +10,39 @@
 
 # @graycore/nx-remote-cache
 
-> A self-hosted Nx remote cache implementation on Azure Blob Storage
+> A self-hosted client-side Nx remote cache implementation on Azure Blob Storage. You can use `@graycore/nx-remote-cache` to replace `@nx/azure-cache`. See the [migration guide](docs/migrating.md).
 
 This project provides:
 
-- A platform-specific client-side rust server that runs next to Nx and implements their [Self-Hosted Caching spec](https://nx.dev/docs/kb/self-hosted-caching)
+- A platform-specific **client-side** rust server that runs as a daemon next to Nx and implements their [Self-Hosted Caching spec](https://nx.dev/docs/kb/self-hosted-caching)
 - It uses the caller's own Azure identity, changing depending upon context:
   - GitHub OIDC in CI
   - `az login` locally
 - Immutable Storage for write-once entries
-- No connection strings
-- Works with Nx's built-in client
-- A Docker-container image that you can if you cannot run the server due to machine permissions
 
-## Purpose
 
-You can use `@graycore/nx-remote-cache` to replace `@nx/azure-cache`. See the [migration guide](docs/migrating.md).
+## Performance Remarks
+This project deliberately trades "optimal" caching for "good enough" caching at a much lower cost. 
 
-This project is a Rust implementation of Nx's OpenAPI spec specifically built around [Azure Blob storage](https://azure.microsoft.com/en-us/products/storage/blobs), authenticating via OIDC.
+The performance target of this project is shared build caches from your project's default branch. Instead of scoping the cache per pull request, pull requests can only read from it. Builds on pull requests reuse everything the default branch has already built, but nothing they build themselves is cached, so re-running a pull request, or a second pull request with the same changes, builds those tasks again. 
 
-It implements Nx's [remote cache spec](https://nx.dev/docs/kb/self-hosted-caching) and is intended to run either inside each CI job or as a daemon on each developer's machine.
-
+In exchange, you do not have to operate your own remote cache server and you do not need a Nx Cloud subscription or `NX_KEY`: you pay only for Azure Blob Storage. If this trade-off isn't worth it for you, then just use [Nx Cloud](https://nx.dev/nx-cloud) or [build your own remote server meeting Nx's spec](https://nx.dev/docs/kb/self-hosted-caching).
 
 ## CREEP
 
-Nx deprecated the `@nx/azure-cache` package after [CVE-2025-36852 (CREEP)](https://nx.dev/docs/reference/deprecated/self-hosted-cache-packages). They did this for a variety of reasons:
+Nx deprecated the `@nx/azure-cache` package after [CVE-2025-36852 (CREEP)](https://nx.dev/docs/reference/deprecated/self-hosted-cache-packages). As we understand it, a few things factored into that decision:
 
-1. Their docs guided every job to share one read/write credential, allowing pull requests to poison the cache for the default branch. 
-2. To achieve "optimal" caching capabilities, one needs to enable cache scoping on Pull Requests
-   1. It is difficult to do this "out-of-the-box" on Azure without substantial headache of operating your own remote caching server.
-3. It makes more sense to just use [Nx Cloud](https://nx.dev/nx-cloud) rather than build and maintain bespoke self-hosted servers for all platforms.
-
-This project deliberately trades "optimal" caching for "good enough" caching at a much lower cost. Instead of scoping the cache per pull request, pull requests can only read from it. They reuse everything the default branch has already built, but nothing they build themselves is cached, so re-running a pull request, or a second pull request with the same changes, builds those tasks again. In exchange, there is no shared cache server to operate and no Nx Cloud subscription: you pay only for Azure Blob Storage. If this trade-off isn't worth it for you, then just use [Nx Cloud](https://nx.dev/nx-cloud).
+1. The docs didn't cover separating read and write access, so a typical setup could give pull requests write access, letting them poison the cache for the default branch.
+2. "Optimal" caching requires scoping the cache per pull request. On Azure, that means dynamically creating containers and scopes, which is hard to do safely when the client can't be trusted.
+3. Maintaining separate self-hosted servers for each major cloud provider is a lot of work, and [Nx Cloud](https://nx.dev/nx-cloud) already solves the problem.
 
 For further information on how we overcome CREEP, please see the [security guide](docs/security-model.md#creep-cve-2025-36852).
 
 ## Getting Started
 
-First, [deploy](docs/deploy.md) the storage container and the CI identities with the [Terraform module](packages/terraform).
+First, [deploy](docs/deploy.md) the storage container and the CI identities. We have a pre-built [Terraform module](packages/terraform) that you can use.
 
-Then add the [`@graycore/nx-remote-cache`](packages/nx-plugin) plugin to your workspace. It bundles the server and starts it whenever Nx runs tasks, in CI (GitHub OIDC) and locally (`az login`), so neither needs any other setup:
+Then add the [`@graycore/nx-remote-cache`](packages/nx-plugin) plugin to your workspace. It bundles the server and starts it whenever Nx runs tasks:
 
 ```sh
 npm install -D @graycore/nx-remote-cache
@@ -101,25 +94,26 @@ To run the server yourself instead, with the binary or the GitHub Action, see [R
 
 ## Features
 
-- [Write-once cache entries](docs/security-model.md#immutability)
-- [Separate reader and writer identities](docs/deploy.md)
-- [No secrets in config](docs/server-configuration.md)
-- [Streaming uploads and downloads](docs/how-it-works.md)
-- [Fails fast on bad storage access](docs/how-it-works.md)
+- [No hosted server to operate](docs/how-it-works.md)
+- [CREEP-resistant by default](docs/security-model.md#who-can-write)
+- [No stored secrets](docs/how-it-works.md#the-server-to-azure)
+- [Write-once entries](docs/security-model.md#immutability)
+- [Drop-in replacement for `@nx/azure-cache`](docs/migrating.md)
+- [Infrastructure as code](docs/deploy.md)
+- [Fails fast](docs/how-it-works.md#behaviour)
+- [Upload attribution](docs/how-it-works.md#behaviour)
 
 ## Helpful Links
 
-- [Configuration](docs/server-configuration.md)
+- [Plugin Configuration](packages/nx-plugin/README.md#setup)
+- [GitHub Action Configuration](packages/github-action/README.md#inputs)
+- [Server Configuration](docs/server-configuration.md)
 - [How it works](docs/how-it-works.md)
 - [Deploying to Azure](docs/deploy.md)
 - [Running the server](docs/running-the-server.md)
 - [Security model](docs/security-model.md)
 - [Cache poisoning](docs/cache-poisoning.md)
 - [Development](docs/development.md)
-
-## Upgrading
-
-- [Migrating from `@nx/azure-cache`](docs/migrating.md)
 
 ## License
 
