@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/graycoreio/nx-remote-cache/compare/v0.4.2...v0.4.3) (2026-10-30)
+
+
+### Features
+
+* **github-action:** add action ([#21](https://github.com/graycoreio/nx-remote-cache/issues/21)) ([75875b0](https://github.com/graycoreio/nx-remote-cache/commit/75875b044aa1dc4804230fa4e5ad96798369f9ce))
+
 ## [0.4.2](https://github.com/graycoreio/nx-remote-cache/compare/v0.4.1...v0.4.2) (2026-10-29)
 
 
