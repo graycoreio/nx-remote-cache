@@ -24,27 +24,44 @@ The log level is controlled by [`RUST_LOG`](https://docs.rs/env_logger/latest/en
 
 ### `[storage]`
 
-| Key (`azure`)          | Default           | Notes                                                                                                            |
-| ---------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `account`              | none              | Storage account name. Set either `account` or `endpoint`.                                                        |
-| `endpoint`             | none              | Full blob service URL, used instead of `account`. For Azurite this is `http://127.0.0.1:10000/devstoreaccount1`. |
-| `container`            | required          | The container must already exist. The server does not create it.                                                 |
-| `prefix`               | `v1`              | Virtual directory inside the container.                                                                          |
-| `block_size`           | `8388608` (8 MiB) | Uploads larger than this are sent in blocks of this size.                                                        |
-| `download_parallelism` | `4`               | Number of concurrent range requests per download.                                                                |
-| `auth`                 | required          | An inline table with exactly one auth mode.                                                                      |
+| Key                    | Default           | Notes                                                                                                              |
+| ---------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `type`                 | required          | `azure`, or `memory` for local smoke tests. `memory` keeps nothing after the server stops and takes no other keys. |
+| `account`              | none              | Storage account name. Set either `account` or `endpoint`.                                                          |
+| `endpoint`             | none              | Full blob service URL, used instead of `account`. For Azurite this is `http://127.0.0.1:10000/devstoreaccount1`.   |
+| `container`            | required          | The container must already exist. The server does not create it.                                                   |
+| `prefix`               | `v1`              | Virtual directory inside the container.                                                                            |
+| `block_size`           | `8388608` (8 MiB) | Uploads larger than this are sent in blocks of this size.                                                          |
+| `download_parallelism` | `4`               | Number of concurrent range requests per download.                                                                  |
+| `auth`                 | required          | An inline table that sets `mode` and that mode's keys.                                                             |
 
-| `auth.mode`         | Other keys                                                                    | Use with                                                |
-| ------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `managed_identity`  | `client_id` (leave out for a system-assigned identity)                        | A managed identity endpoint, or the dev compose sidecar |
-| `workload_identity` | `tenant_id`, `client_id` (default `AZURE_TENANT_ID` / `AZURE_CLIENT_ID`)      | Federated credentials from `AZURE_FEDERATED_TOKEN_FILE` |
-| `client_secret`     | `tenant_id`, `client_id`, `client_secret_env` (default `AZURE_CLIENT_SECRET`) | A service principal                                     |
-| `developer_tools`   | none                                                                          | `az login` or `azd auth login`                          |
+`auth.mode` picks how the server signs in to Azure. See [Authentication](authentication.md#azure-credentials) for when to use each one.
+
+| `auth.mode`         | Other keys                                                                                                                                |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `developer_tools`   | None. Uses `az login` or `azd auth login`.                                                                                                |
+| `managed_identity`  | `client_id`. Leave it out for a system-assigned identity.                                                                                 |
+| `workload_identity` | `tenant_id` and `client_id`, which default to `AZURE_TENANT_ID` and `AZURE_CLIENT_ID`. Reads the token from `AZURE_FEDERATED_TOKEN_FILE`. |
+| `client_secret`     | `tenant_id` and `client_id`, both required, and `client_secret_env`, the variable holding the secret (default `AZURE_CLIENT_SECRET`).     |
 
 ### `[[auth.providers]]`
 
-At least one provider is required.
+How Nx authenticates to the server. At least one provider is required. See [Authentication](authentication.md#validation-token).
 
-| `type`   | Keys                                                                                                                                                         |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `static` | `tokens = [{ name, sha256, scope }]`. `scope` is either `read` or `read_write`. The token's `name` is recorded on every cache entry written with that token. |
+| `type`   | Keys                                                                                                                                                                                           |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `static` | `tokens = [{ name, sha256, scope }]`. `sha256` is the hash printed by `nx-remote-cache generate-token`. `scope` is `read` or `read_write`. `name` is recorded on every entry the token writes. |
+
+## Example
+
+```toml
+[storage]
+type = "azure"
+account = "acmecache"
+container = "nx"
+auth = { mode = "developer_tools" }
+
+[[auth.providers]]
+type = "static"
+tokens = [{ name = "dev-alice", sha256 = "<sha256>", scope = "read_write" }]
+```

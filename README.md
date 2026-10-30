@@ -16,12 +16,12 @@
 
 - [No hosted server to operate](docs/how-it-works.md)
 - [CREEP-resistant by default](docs/security-model.md#who-can-write)
-- [No stored secrets](docs/how-it-works.md#the-server-to-azure)
+- [No stored secrets](docs/authentication.md)
 - [Write-once entries](docs/security-model.md#immutability)
 - [Drop-in replacement for `@nx/azure-cache`](docs/migrating.md)
 - [Infrastructure as code](docs/deploy.md)
 - [Fails fast](docs/how-it-works.md#behaviour)
-- [Upload attribution](docs/how-it-works.md#behaviour)
+- [Upload attribution](docs/authentication.md#upload-attribution)
 
 ## Getting Started
 
@@ -98,6 +98,7 @@ In exchange, you do not have to operate your own remote cache server and you do 
 - [GitHub Action Configuration](packages/github-action/README.md#inputs)
 - [Server Configuration](docs/server-configuration.md)
 - [How it works](docs/how-it-works.md)
+- [Authentication](docs/authentication.md)
 - [Deploying to Azure](docs/deploy.md)
 - [Running the server](docs/running-the-server.md)
 - [Security model](docs/security-model.md)

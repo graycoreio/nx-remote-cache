@@ -3,42 +3,44 @@
 ```mermaid
 flowchart LR
   subgraph ci["CI job"]
-    cinx[Nx] -- static token --> ciserver["nx-remote-cache<br/>127.0.0.1"]
+    cinx[Nx] -- token --> ciserver["nx-remote-cache<br/>127.0.0.1"]
   end
   subgraph dev["Dev machine"]
-    devnx[Nx] -- static token --> devserver["nx-remote-cache<br/>127.0.0.1"]
+    devnx[Nx] -- token --> devserver["nx-remote-cache<br/>127.0.0.1"]
   end
-  ciserver -- "GitHub OIDC token ⇄<br/>writer or reader identity" --> blob[("Blob container")]
-  devserver -- "az login" --> blob
+  ciserver -- "GitHub OIDC →<br/>writer or reader identity" --> blob[("Blob container")]
+  devserver -- "your az login" --> blob
 ```
 
-Each CI job and each developer runs their own instance of the server. Nx talks to that local instance, and the instance talks to Azure Blob Storage with the caller's identity.
+The cache storage is shared, but the server isn't. Every CI job and developer uses the same Azure Blob Storage container, so an entry written by one of them is a cache hit for all the others. However, the server that talks to that container is not a shared service: each CI job and each developer runs their own private instance on their own machine, usually started by the [Nx plugin](../packages/nx-plugin).
 
-## Nx to the server
+Each instance listens on `127.0.0.1` and implements Nx's [self-hosted cache API](https://nx.dev/docs/kb/self-hosted-caching), so Nx talks to it like any other remote cache. The instance reads and writes the shared container directly, with the Azure credentials of whoever started it.
 
-Nx sends a static token with every request. The server stores tokens as SHA-256 hashes in its config. In CI, the action generates a new token for each job.
+The only infrastructure you deploy is the storage container and the Azure identities that can use it. See [Deploying to Azure](deploy.md).
 
-The server only listens on `127.0.0.1`, so the token's job is to keep other local processes out. Each token has a scope of `read` or `read_write`. Uploads with a `read` token get a `403`, and Nx skips them.
+## Authentication
 
-## The server to Azure
+Nx authenticates to the local server with a token that is made up when the server starts. The server authenticates to Azure with the caller's own identity: a GitHub OIDC token exchanged for the writer or reader identity in CI, or your `az login` on a dev machine. No secrets are stored anywhere.
 
-The server uses the single auth mode named in [`storage.auth`](server-configuration.md#storage). It does not fall back to other credentials.
+Azure's role assignments decide who can write, not the server. See [Authentication](authentication.md) for the full flow.
 
-| Where it runs           | `storage.auth.mode`                                                                                |
-| ----------------------- | -------------------------------------------------------------------------------------------------- |
-| CI job                  | `workload_identity`, which exchanges the job's GitHub OIDC token for the writer or reader identity |
-| Docker on a dev machine | `managed_identity` through the `az` sidecar                                                        |
-| Binary on a dev machine | `developer_tools`, which uses your `az login`                                                      |
-| Anywhere else           | `client_secret`, which uses a service principal                                                    |
+## Storage
 
-The identity's role on the container controls whether or not the request can read or write. Azure Identities with `Storage Blob Data Reader` can only read. `Storage Blob Data Contributor` can read and write. Shared keys and connection strings are not supported.
+Each cache entry is a blob named after its task hash, under the configured [`prefix`](server-configuration.md#storage).
+
+Uploads and downloads stream. Large uploads are sent to Azure in 8 MiB blocks and committed with `If-None-Match: *`, so an existing entry is never replaced. Downloads are fetched as parallel range requests. Memory use stays around 30 MB per upload and 90 MB per download, whatever the artifact size.
+
+Every blob records the name of the token that wrote it. See [Upload attribution](authentication.md#upload-attribution).
 
 ## Behaviour
 
-Nx treats a `401` from the cache as fatal, so an invalid token fails the run even if every task passed. A `403` on upload is not fatal, and Nx carries on without uploading. The server reads the whole request body before it rejects an upload, so Nx sees the `403` instead of a dropped connection.
+The server checks storage access before it starts listening. If the container is missing, or the identity can't be obtained or has no role on it, the server exits with an error that says so. Once `/health` responds, the server is ready to serve requests.
 
-Uploads and downloads stream. Large uploads are sent to Azure in 8 MiB blocks and committed with `If-None-Match: *`, so an existing entry is never replaced. Memory use stays around 30 MB per upload and 90 MB per download, whatever the artifact size.
+| Response | When                                         |
+| -------- | -------------------------------------------- |
+| `401`    | The token is missing or wrong                |
+| `403`    | An upload from a read-only token or identity |
+| `409`    | An upload for a hash that is already cached  |
+| `413`    | An upload larger than `max_artifact_bytes`   |
 
-Every blob records the name of the token that wrote it. The action uses `ci-job`, and the dev compose setup uses `dev-<username>`.
-
-The server checks storage access before it starts listening. If the container is missing, or a role assignment is missing, it exits with an error that says so. Once `/health` responds, the server is ready to serve requests.
+Nx treats a `401` as fatal, so a misconfigured token fails the run even if every task passed. A `403` on upload is not fatal, and Nx carries on without uploading. The server reads the whole request body before it returns a `403`, so Nx sees the status code instead of a dropped connection.
