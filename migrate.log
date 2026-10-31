@@ -1,0 +1,42 @@
+Fetching meta data about packages.
+It may take a few minutes.
+Fetching nx@24.0.3
+
+[7m[1m[32m NX [39m[22m[27m  [32mThe migrate command has run successfully.[39m
+
+- package.json has been updated.
+- There are no migrations to run, so migrations.json has not been created.
+
+
+[7m[1m[36m NX [39m[22m[27m  Next steps:
+
+- Make sure package.json changes make sense and then run 'npm install',
+- To learn more go to https://nx.dev/features/automate-updating-dependencies
+- You may run 'npm run nx -- connect-to-nx-cloud' to get faster builds, GitHub integration, and more. Check out https://nx.app
+
+
+[7m[1m[36m NX [39m[22m[27m  Running 'npm install --ignore-scripts' to make sure necessary packages are installed
+
+
+changed 4 packages, and audited 352 packages in 4s
+
+49 packages are looking for funding
+  run `npm fund` for details
+
+25 vulnerabilities (4 low, 19 moderate, 2 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+[7m[1m[36m NX [39m[22m[27m  Running migrations from 'migrations.json'
+
+Running the following migrations:
+
+
+[7m[1m[32m NX [39m[22m[27m  [32mNo changes were made from running 'migrations.json'. This workspace is up to date![39m
+
