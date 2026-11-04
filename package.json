@@ -7,6 +7,6 @@
     "packages/github-action"
   ],
   "devDependencies": {
-    "nx": "24.0.2"
+    "nx": "24.0.3"
   }
 }
