@@ -20,7 +20,7 @@ inputs:
     default: v1
   version:
     description: nx-remote-cache version or npm dist-tag to run.
-    default: 0.4.2 # x-release-please-version
+    default: 0.4.3 # x-release-please-version
   server-binary:
     description: Path to a local server binary to use instead of downloading `version`.
 

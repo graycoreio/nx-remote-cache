@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: graycoreio/nx-remote-cache/packages/github-action@v0.4.2
+      - uses: graycoreio/nx-remote-cache/packages/github-action@v0.4.3
         with:
           tenant-id: ${{ vars.NX_CACHE_TENANT_ID }}
           writer-client-id: ${{ vars.NX_CACHE_WRITER_CLIENT_ID }}
@@ -53,7 +53,7 @@ In a reusable workflow, the calling workflow must also grant `id-token: write`.
 | `storage-account`   |                                           | Storage account name.                                                                                                                                                                                                              |
 | `storage-container` |                                           | Blob container name.                                                                                                                                                                                                               |
 | `storage-prefix`    | `v1`                                      | Path prefix for cache entries in the container.                                                                                                                                                                                    |
-| `version`           | `0.4.2` <!-- x-release-please-version --> | Server version or npm dist-tag to run. Defaults to the action's release.                                                                                                                                                           |
+| `version`           | `0.4.3` <!-- x-release-please-version --> | Server version or npm dist-tag to run. Defaults to the action's release.                                                                                                                                                           |
 | `server-binary`     |                                           | Path to a local server binary to use instead of downloading `version`.                                                                                                                                                             |
 
 ## Behavior
