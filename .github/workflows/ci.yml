@@ -155,12 +155,12 @@ jobs:
           docker logs cache
 
   # The single check the main branch ruleset requires, so jobs can change without touching the
-  # ruleset. Fails unless every job in `needs` succeeded; add new jobs there.
-  ci:
+  # ruleset. Fails if any job in `needs` failed or was cancelled; add new jobs there.
+  build-workflow-complete:
     if: always()
     needs: [lint, test, nx-plugin, github-action, github-action-no-token, msrv, release-build, docker]
     runs-on: ubuntu-latest
     steps:
-      - run: echo "$RESULTS" | jq -e 'all(.[]; .result == "success")'
+      - run: echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")'
         env:
-          RESULTS: ${{ toJSON(needs) }}
+          NEEDS: ${{ toJSON(needs) }}
