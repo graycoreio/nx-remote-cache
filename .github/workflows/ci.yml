@@ -153,3 +153,14 @@ jobs:
           test "$(status -H 'Authorization: Bearer smoke' localhost:3000/v1/cache/123)" = 404
           test "$(status -H 'Authorization: Bearer smoke' -X PUT -H 'Content-Length: 1' --data x localhost:3000/v1/cache/123)" = 403
           docker logs cache
+
+  # The single check the main branch ruleset requires, so jobs can change without touching the
+  # ruleset. Fails unless every job in `needs` succeeded; add new jobs there.
+  ci:
+    if: always()
+    needs: [lint, test, nx-plugin, github-action, github-action-no-token, msrv, release-build, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "$RESULTS" | jq -e 'all(.[]; .result == "success")'
+        env:
+          RESULTS: ${{ toJSON(needs) }}
