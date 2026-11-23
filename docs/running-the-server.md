@@ -8,7 +8,7 @@ To run the server locally, download the binary for your platform from the [relea
 
 <!-- x-release-please-start-version -->
 ```sh
-version=0.4.2
+version=0.4.3
 target=x86_64-unknown-linux-gnu   # or aarch64-unknown-linux-gnu, universal-apple-darwin
 base=https://github.com/graycoreio/nx-remote-cache/releases/download/v$version
 curl -fLO "$base/nx-remote-cache-$version-$target.tar.gz"
@@ -47,7 +47,7 @@ permissions:
   contents: read
 
 steps:
-  - uses: graycoreio/nx-remote-cache/packages/github-action@v0.4.2
+  - uses: graycoreio/nx-remote-cache/packages/github-action@v0.4.3
     with:
       tenant-id: <tenantId output>
       writer-client-id: <writerClientId output>
