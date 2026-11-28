@@ -1,0 +1,51 @@
+Fetching meta data about packages.
+It may take a few minutes.
+Fetching nx@24.1.0
+
+[7m[1m[32m NX [39m[22m[27m  [32mThe migrate command has run successfully.[39m
+
+- package.json has been updated.
+- migrations.json has been generated.
+
+
+[7m[1m[36m NX [39m[22m[27m  Next steps:
+
+- Make sure package.json changes make sense and then run 'npm install',
+- Run 'npx nx migrate --run-migrations'
+- To learn more go to https://nx.dev/features/automate-updating-dependencies
+- You may run 'npm run nx -- connect-to-nx-cloud' to get faster builds, GitHub integration, and more. Check out https://nx.app
+
+
+[7m[1m[36m NX [39m[22m[27m  Running 'npm install --ignore-scripts' to make sure necessary packages are installed
+
+
+added 2 packages, changed 4 packages, and audited 371 packages in 3s
+
+65 packages are looking for funding
+  run `npm fund` for details
+
+18 moderate severity vulnerabilities
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+[7m[1m[36m NX [39m[22m[27m  Running migrations from 'migrations.json'
+
+Running the following migrations:
+- nx: 24-1-0-replace-powerpack-conformance — Replaces @nx/powerpack-conformance with @nx/conformance, which nx conformance now loads. Rewrites its rule specifiers, executors and imports, points ensure-owners at @nx/owners, and adds esbuild for the bundle-rules executor.
+
+── Migration 1 of 1 · nx:24-1-0-replace-powerpack-conformance ───────────
+[2m→ Running generator…[22m
+Ran 24-1-0-replace-powerpack-conformance from nx
+  Replaces @nx/powerpack-conformance with @nx/conformance, which nx conformance now loads. Rewrites its rule specifiers, executors and imports, points ensure-owners at @nx/owners, and adds esbuild for the bundle-rules executor.
+
+No changes were made
+
+
+
+[7m[1m[32m NX [39m[22m[27m  [32mNo changes were made from running 'migrations.json'. This workspace is up to date![39m
+
+1 migration applied, 0 commits created.
+
